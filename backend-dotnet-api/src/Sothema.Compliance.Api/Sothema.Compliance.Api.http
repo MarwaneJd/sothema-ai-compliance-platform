@@ -1,0 +1,6 @@
+@Sothema.Compliance.Api_HostAddress = http://localhost:5136
+
+GET {{Sothema.Compliance.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

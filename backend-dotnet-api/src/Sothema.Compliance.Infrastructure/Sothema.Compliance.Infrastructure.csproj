@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sothema.Compliance.Application\Sothema.Compliance.Application.csproj" />
+  </ItemGroup>
+
+</Project>

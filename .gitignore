@@ -1,0 +1,94 @@
+# =========================
+# OS & IDE
+# =========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# =========================
+# Claude Code
+# =========================
+.claude/
+
+# =========================
+# Node.js / Frontend
+# =========================
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.env.local
+.env.production
+.env.*.local
+
+# =========================
+# Python / AI Service
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.egg-info/
+*.egg
+
+# FAISS indexes (generated data — regenerate via ingestion pipeline)
+ai-service-python/data/
+
+# =========================
+# .NET / Backend
+# =========================
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.nupkg
+*.snupkg
+project.lock.json
+*.nuget.props
+*.nuget.targets
+.nuget/
+packages/
+
+# .NET secret & environment files
+backend-dotnet-api/.env
+backend-dotnet-api/**/.env
+**/secrets.json
+**/appsettings.Local.json
+
+# =========================
+# Docker
+# =========================
+docker/.env
+
+# =========================
+# Environment files (catch-all)
+# =========================
+.env
+!.env.example
+!.env.development
+
+# =========================
+# Logs & Temp
+# =========================
+*.log
+logs/
+tmp/
+temp/

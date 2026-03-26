@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-sothema-primary: #0061A8;
+  --color-sothema-primary-light: #3381B9;
+  --color-sothema-primary-dark: #004D86;
+  --color-sothema-secondary: #2d5a68;
+  --color-sothema-cyan: #0074C8;
+  --color-sothema-cyan-light: #e0f0ff;
+  --color-sothema-dark: #1e293b;
+  --color-sothema-bg: #F8FBFC;
+  
+  --color-score-high: #10b981;
+  --color-score-medium: #f59e0b;
+  --color-score-low: #f97316;
+  --color-score-critical: #ef4444;
+  
+  --font-sans: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-sothema-dark);
+  background-color: var(--color-sothema-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@layer utilities {
+  .glass-card {
+    background-color: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 1rem;
+  }
+  
+  .glass-panel {
+    background-color: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    border: 1px solid #f1f5f9;
+    border-radius: 1rem;
+  }
+
+  .hover-lift {
+    transition: all 0.3s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-image: linear-gradient(to right, var(--color-sothema-primary), var(--color-sothema-cyan));
+  }
+}

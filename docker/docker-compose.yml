@@ -1,0 +1,60 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "${SA_PASSWORD}"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+
+  backend-api:
+    build:
+      context: ../backend-dotnet-api
+      dockerfile: src/Sothema.Compliance.Api/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=SothemaCompliance;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=true
+      - AzureAd__ClientSecret=${AZURE_AD_CLIENT_SECRET}
+      - AiService__BaseUrl=http://ai-service:8000
+    depends_on:
+      - sqlserver
+      - ai-service
+
+  ai-service:
+    build:
+      context: ../ai-service-python
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - AI_SERVICE_API_KEY=${AI_SERVICE_API_KEY}
+      - AI_SERVICE_DATABASE_CONNECTION_STRING=mssql+aioodbc:///?odbc_connect=Driver={ODBC Driver 18 for SQL Server};Server=sqlserver,1433;Database=SothemaCompliance;UID=sa;PWD=${SA_PASSWORD};TrustServerCertificate=yes
+      - AI_SERVICE_LLM_PROVIDER=${LLM_PROVIDER:-azure}
+      - AI_SERVICE_AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AI_SERVICE_AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AI_SERVICE_AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-06-01}
+      - AI_SERVICE_AZURE_OPENAI_CHAT_DEPLOYMENT=${AZURE_OPENAI_CHAT_DEPLOYMENT:-gpt-4o}
+      - AI_SERVICE_GROQ_API_KEY=${GROQ_API_KEY:-}
+      - AI_SERVICE_GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - AI_SERVICE_EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+      - AI_SERVICE_FAISS_INDEX_PATH=/app/data/faiss_indexes
+    volumes:
+      - faiss-data:/app/data/faiss_indexes
+    depends_on:
+      - sqlserver
+
+  frontend-web:
+    build:
+      context: ../frontend-web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend-api
+
+volumes:
+  sqlserver-data:
+  faiss-data:

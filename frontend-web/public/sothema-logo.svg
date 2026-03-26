@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" fill="none">
+  <rect x="0" y="5" width="30" height="30" rx="6" fill="#438094"/>
+  <path d="M8 20 L14 26 L22 14" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="38" y="28" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="700" fill="#438094">SOTHEMA</text>
+</svg>
