@@ -25,6 +25,13 @@ class LLMService:
             )
             self.model = settings.groq_model
             logger.info("LLM provider initialized", provider="groq", model=self.model)
+        elif settings.llm_provider == "ollama":
+            self.client = OpenAI(
+                api_key="ollama",  # Ollama requires a non-empty key; value is ignored
+                base_url=settings.ollama_base_url,
+            )
+            self.model = settings.ollama_model
+            logger.info("LLM provider initialized", provider="ollama", model=self.model)
         else:
             self.client = AzureOpenAI(
                 azure_endpoint=settings.azure_openai_endpoint,

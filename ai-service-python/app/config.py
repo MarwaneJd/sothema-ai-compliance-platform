@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
 
+    # Ollama local (used when llm_provider == "ollama")
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "qwen3.5:4b"
+
     # Embedding (local sentence-transformers model)
     embedding_model_name: str = "all-MiniLM-L6-v2"
     embedding_dimensions: int = 384
