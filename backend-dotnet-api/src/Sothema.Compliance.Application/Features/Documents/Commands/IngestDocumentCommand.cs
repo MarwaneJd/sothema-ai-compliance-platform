@@ -82,7 +82,7 @@ public class IngestDocumentCommandHandler
             request.SiteId, request.DriveId, request.SharePointItemId, cancellationToken);
 
         await _aiService.RequestAnalysisAsync(
-            document.Id, content, document.FileType, cancellationToken);
+            document.Id, content, document.FileType, document.Title, cancellationToken);
 
         return Result<DocumentDto>.Success(_mapper.Map<DocumentDto>(document));
     }

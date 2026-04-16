@@ -7,7 +7,7 @@ Both services share the same SQL Server database.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -40,7 +40,7 @@ class TextSegment(Base):
     DocumentId = Column(
         UNIQUEIDENTIFIER, ForeignKey("Documents.Id"), nullable=False, index=True
     )
-    Content = Column(String, nullable=False)
+    Content = Column(Text, nullable=False)
     ChunkIndex = Column(Integer, nullable=False)
     VectorStoreId = Column(String(100), nullable=True)
     CreatedAt = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -59,8 +59,8 @@ class ComplianceAnalysis(Base):
         UNIQUEIDENTIFIER, ForeignKey("Documents.Id"), nullable=False, index=True
     )
     Score = Column(Float, nullable=False, default=0.0)
-    Summary = Column(String, nullable=False, default="")
-    Details = Column(String, nullable=True)  # JSON string
+    Summary = Column(Text, nullable=False, default="")
+    Details = Column(Text, nullable=True)  # JSON string
     Status = Column(Integer, nullable=False, default=0)  # AnalysisStatus enum
     AnalyzedAt = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -76,7 +76,7 @@ class AuditLog(Base):
     EntityType = Column(String(200), nullable=False)
     EntityId = Column(String(200), nullable=False)
     Timestamp = Column(DateTime, nullable=False, default=datetime.utcnow)
-    Details = Column(String, nullable=True)  # JSON string
+    Details = Column(Text, nullable=True)  # JSON string
 
 
 class User(Base):
@@ -110,8 +110,8 @@ class UserQuery(Base):
 
     Id = Column(UNIQUEIDENTIFIER, primary_key=True, default=uuid.uuid4)
     UserId = Column(UNIQUEIDENTIFIER, ForeignKey("Users.Id"), nullable=False)
-    Question = Column(String, nullable=False)
-    Response = Column(String, nullable=True)
+    Question = Column(Text, nullable=False)
+    Response = Column(Text, nullable=True)
     AgentId = Column(UNIQUEIDENTIFIER, ForeignKey("Agents.Id"), nullable=True)
     CreatedAt = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -126,8 +126,8 @@ class AiRequest(Base):
     UserQueryId = Column(
         UNIQUEIDENTIFIER, ForeignKey("UserQueries.Id"), nullable=True
     )
-    Question = Column(String, nullable=False)
-    Response = Column(String, nullable=True)
+    Question = Column(Text, nullable=False)
+    Response = Column(Text, nullable=True)
     CreatedAt = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     user_query = relationship("UserQuery")

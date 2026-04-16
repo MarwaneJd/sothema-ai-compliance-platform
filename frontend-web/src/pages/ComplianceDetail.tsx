@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import Markdown from 'react-markdown';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { ScoreBadge, getScoreLabel } from '@/components/ui/ScoreBadge';
@@ -22,12 +23,15 @@ export default function ComplianceDetail() {
   if (loading) return <LoadingSpinner />;
   if (!analysis) return <div className="text-center py-12 text-gray-500">Analysis not found.</div>;
 
-  const categories = analysis.details
+  const hasDetails = analysis.details?.documentation && analysis.details?.regulatory
+    && analysis.details?.quality && analysis.details?.traceability;
+
+  const categories = hasDetails
     ? [
-        { name: 'Documentation', data: analysis.details.documentation },
-        { name: 'Regulatory', data: analysis.details.regulatory },
-        { name: 'Quality', data: analysis.details.quality },
-        { name: 'Traceability', data: analysis.details.traceability },
+        { name: 'Documentation', data: analysis.details!.documentation },
+        { name: 'Regulatory', data: analysis.details!.regulatory },
+        { name: 'Quality', data: analysis.details!.quality },
+        { name: 'Traceability', data: analysis.details!.traceability },
       ]
     : [];
 
@@ -56,13 +60,13 @@ export default function ComplianceDetail() {
         </div>
       </Card>
 
-      {analysis.details && (
+      {hasDetails && (
         <>
           {/* Category breakdown */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <h2 className="text-lg font-semibold text-sothema-dark mb-4">Category Breakdown</h2>
-              <CategoryBreakdownChart details={analysis.details} />
+              <CategoryBreakdownChart details={analysis.details!} />
             </Card>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -78,7 +82,9 @@ export default function ComplianceDetail() {
       {analysis.summary && (
         <Card>
           <h2 className="text-lg font-semibold text-sothema-dark mb-3">AI Summary</h2>
-          <p className="text-sm text-gray-600 leading-relaxed">{analysis.summary}</p>
+          <div className="text-sm text-gray-600 leading-relaxed prose prose-sm max-w-none">
+            <Markdown>{analysis.summary}</Markdown>
+          </div>
         </Card>
       )}
     </div>

@@ -1,8 +1,9 @@
+import asyncio
 import json
-import time
+import re
 
 import structlog
-from openai import AzureOpenAI, OpenAI
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config import Settings
@@ -19,21 +20,22 @@ class LLMService:
 
     def __init__(self, settings: Settings):
         if settings.llm_provider == "groq":
-            self.client = OpenAI(
+            self.client = AsyncOpenAI(
                 api_key=settings.groq_api_key,
                 base_url="https://api.groq.com/openai/v1",
             )
             self.model = settings.groq_model
             logger.info("LLM provider initialized", provider="groq", model=self.model)
         elif settings.llm_provider == "ollama":
-            self.client = OpenAI(
+            self.client = AsyncOpenAI(
                 api_key="ollama",  # Ollama requires a non-empty key; value is ignored
                 base_url=settings.ollama_base_url,
+                timeout=1800.0,  # 30 min for local CPU inference
             )
             self.model = settings.ollama_model
             logger.info("LLM provider initialized", provider="ollama", model=self.model)
         else:
-            self.client = AzureOpenAI(
+            self.client = AsyncAzureOpenAI(
                 azure_endpoint=settings.azure_openai_endpoint,
                 api_key=settings.azure_openai_api_key,
                 api_version=settings.azure_openai_api_version,
@@ -52,13 +54,15 @@ class LLMService:
 
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.client.chat.completions.create(
+                response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
                 content = response.choices[0].message.content or ""
+                # Strip qwen3's <think>...</think> blocks if present
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
                 logger.info(
                     "LLM response generated",
@@ -78,7 +82,7 @@ class LLMService:
                         delay=delay,
                         error=str(e),
                     )
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
 
         raise LLMError(f"LLM request failed after {MAX_RETRIES} retries: {last_error}")
 
@@ -87,14 +91,15 @@ class LLMService:
         messages: list[dict],
         response_format: type[BaseModel],
         temperature: float = 0.1,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
     ) -> BaseModel:
         """Generate a structured response using JSON mode. Parses into the given Pydantic model."""
         last_error: Exception | None = None
 
         # Add JSON instruction to system message
+        # /no_think disables qwen3's thinking mode to avoid wasting tokens
         json_instruction = (
-            f"\nYou must respond with valid JSON matching this schema:\n"
+            f"\n/no_think\nYou must respond with ONLY valid JSON matching this schema (no explanation, no markdown):\n"
             f"{json.dumps(response_format.model_json_schema(), indent=2)}"
         )
         enhanced_messages = list(messages)
@@ -108,7 +113,7 @@ class LLMService:
 
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.client.chat.completions.create(
+                response = await self.client.chat.completions.create(
                     model=self.model,
                     messages=enhanced_messages,
                     temperature=temperature,
@@ -116,6 +121,8 @@ class LLMService:
                     response_format={"type": "json_object"},
                 )
                 content = response.choices[0].message.content or "{}"
+                # Strip qwen3's <think>...</think> blocks if present
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
                 logger.info(
                     "Structured LLM response generated",
@@ -136,7 +143,7 @@ class LLMService:
                         delay=delay,
                         error=str(e),
                     )
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
 
         raise LLMError(
             f"Structured LLM request failed after {MAX_RETRIES} retries: {last_error}"

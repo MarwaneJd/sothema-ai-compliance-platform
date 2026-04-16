@@ -23,7 +23,9 @@ public class MappingProfile : Profile
         CreateMap<AuditLog, AuditLogDto>();
 
         CreateMap<User, UserProfileDto>()
-            .ForMember(d => d.ObjectId,
+            .ForMember(d => d.Id,
+                opt => opt.MapFrom(src => src.Id.ToString()))
+            .ForMember(d => d.EntraObjectId,
                 opt => opt.MapFrom(src => src.EntraObjectId))
             .ForMember(d => d.Role,
                 opt => opt.MapFrom(src => src.Role.ToString()));

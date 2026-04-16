@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text as sa_text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -53,8 +53,28 @@ class TextSegmentRepository:
         return list(result.scalars().all())
 
     async def bulk_create(self, segments: list[TextSegment]) -> list[TextSegment]:
-        self.session.add_all(segments)
-        await self.session.flush()
+        # Use raw SQL with CAST to bypass FreeTDS parameter binding truncation
+        # on NVARCHAR(MAX) columns (FreeTDS sends strings as bounded VARCHAR)
+        for seg in segments:
+            await self.session.execute(
+                sa_text(
+                    "INSERT INTO [TextSegments] "
+                    "([Id], [DocumentId], [Content], [ChunkIndex], [VectorStoreId], [CreatedAt]) "
+                    "VALUES (:id, :doc_id, CAST(:content AS NVARCHAR(MAX)), :chunk_idx, :vs_id, :created)"
+                ),
+                {
+                    "id": str(seg.Id),
+                    "doc_id": str(seg.DocumentId),
+                    "content": seg.Content,
+                    "chunk_idx": seg.ChunkIndex,
+                    "vs_id": seg.VectorStoreId,
+                    "created": seg.CreatedAt,
+                },
+            )
+        # Expunge ORM objects so SQLAlchemy doesn't try to flush them again
+        for seg in segments:
+            if seg in self.session.new:
+                self.session.expunge(seg)
         return segments
 
     async def get_by_vector_store_ids(
@@ -128,8 +148,23 @@ class AuditLogRepository:
         self.session = session
 
     async def create(self, log: AuditLog) -> AuditLog:
-        self.session.add(log)
-        await self.session.flush()
+        # Use raw SQL with CAST to bypass FreeTDS truncation on Details column
+        await self.session.execute(
+            sa_text(
+                "INSERT INTO [AuditLogs] "
+                "([Id], [UserId], [Action], [EntityType], [EntityId], [Timestamp], [Details]) "
+                "VALUES (:id, :user_id, :action, :entity_type, :entity_id, :ts, CAST(:details AS NVARCHAR(MAX)))"
+            ),
+            {
+                "id": str(log.Id),
+                "user_id": log.UserId,
+                "action": log.Action,
+                "entity_type": log.EntityType,
+                "entity_id": log.EntityId,
+                "ts": log.Timestamp,
+                "details": log.Details,
+            },
+        )
         return log
 
 
@@ -138,8 +173,20 @@ class AiRequestRepository:
         self.session = session
 
     async def create(self, request: AiRequest) -> AiRequest:
-        self.session.add(request)
-        await self.session.flush()
+        # Use raw SQL with CAST to bypass FreeTDS truncation on large text columns
+        await self.session.execute(
+            sa_text(
+                "INSERT INTO [AiRequests] "
+                "([Id], [Question], [Response], [CreatedAt]) "
+                "VALUES (:id, CAST(:question AS NVARCHAR(MAX)), CAST(:response AS NVARCHAR(MAX)), :created)"
+            ),
+            {
+                "id": str(request.Id),
+                "question": request.Question,
+                "response": request.Response,
+                "created": request.CreatedAt,
+            },
+        )
         return request
 
 

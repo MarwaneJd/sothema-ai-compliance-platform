@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FileText, ExternalLink, Play } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -9,25 +9,40 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import { getDocument } from '@/services/documentService';
-import { triggerAnalysis } from '@/services/complianceService';
-import { mockAnalyses } from '@/mocks/analyses';
-import type { Document } from '@/types';
+import { triggerAnalysis, getAnalysesByDocument } from '@/services/complianceService';
+import type { Document, ComplianceAnalysis } from '@/types';
 
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [doc, setDoc] = useState<Document | null>(null);
+  const [analyses, setAnalyses] = useState<ComplianceAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
 
+  const fetchAnalyses = useCallback(() => {
+    if (!id) return;
+    getAnalysesByDocument(id).then(setAnalyses).catch(() => {});
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
     getDocument(id).then(setDoc).finally(() => setLoading(false));
-  }, [id]);
+    fetchAnalyses();
+  }, [id, fetchAnalyses]);
 
-  const analyses = mockAnalyses.filter((a) => a.documentId === id);
+  // Poll for updates when any analysis is still processing
+  useEffect(() => {
+    const hasProcessing = analyses.some(
+      (a) => a.status === 'Processing' || a.status === 'Pending'
+    );
+    if (!hasProcessing) return;
+    const interval = setInterval(fetchAnalyses, 5000);
+    return () => clearInterval(interval);
+  }, [analyses, fetchAnalyses]);
+
   const canAnalyze = user?.role === 'Admin' || user?.role === 'Analyst';
 
   const handleAnalyze = async () => {
@@ -36,6 +51,7 @@ export default function DocumentDetail() {
     try {
       await triggerAnalysis(id);
       setShowModal(false);
+      fetchAnalyses();
     } finally {
       setAnalyzing(false);
     }
@@ -93,8 +109,8 @@ export default function DocumentDetail() {
             {analyses.map((a) => (
               <div
                 key={a.id}
-                onClick={() => navigate(`/compliance/${a.id}`)}
-                className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer"
+                onClick={() => a.status === 'Completed' ? navigate(`/compliance/${a.id}`) : undefined}
+                className={`flex items-center justify-between p-3 rounded-lg border border-gray-100 ${a.status === 'Completed' ? 'hover:bg-gray-50 cursor-pointer' : ''}`}
               >
                 <div className="flex items-center gap-4">
                   {a.status === 'Completed' && <ScoreBadge score={a.score} size="sm" />}
@@ -105,7 +121,10 @@ export default function DocumentDetail() {
                     </p>
                   </div>
                 </div>
-                {a.summary && <p className="text-sm text-gray-500 max-w-md truncate hidden lg:block">{a.summary}</p>}
+                {a.status === 'Processing' && (
+                  <span className="text-xs text-blue-500 animate-pulse">Analyzing...</span>
+                )}
+                {a.summary && <p className="text-sm text-gray-500 max-w-md truncate hidden lg:block">{a.summary.slice(0, 120)}</p>}
               </div>
             ))}
           </div>

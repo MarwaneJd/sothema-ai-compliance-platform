@@ -8,7 +8,7 @@ namespace Sothema.Compliance.Application.Features.Documents.Queries;
 
 public record GetDocumentsQuery : IRequest<Result<PaginatedList<DocumentDto>>>
 {
-    public int PageIndex { get; init; } = 1;
+    public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 20;
 }
 
@@ -31,13 +31,13 @@ public class GetDocumentsQueryHandler
         var totalCount = allDocuments.Count;
 
         var pagedItems = allDocuments
-            .Skip((request.PageIndex - 1) * request.PageSize)
+            .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .ToList();
 
         var dtos = _mapper.Map<List<DocumentDto>>(pagedItems);
 
         return Result<PaginatedList<DocumentDto>>.Success(
-            new PaginatedList<DocumentDto>(dtos, totalCount, request.PageIndex, request.PageSize));
+            new PaginatedList<DocumentDto>(dtos, totalCount, request.Page, request.PageSize));
     }
 }

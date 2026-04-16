@@ -41,6 +41,8 @@ from app.dependencies import (
 from app.rag.bm25_store import BM25Store
 from app.rag.hybrid_retriever import HybridRetriever
 from app.rag.vector_store import FAISSVectorStore
+from app.db.models import TextSegment
+from app.services.chunking import TextChunker
 from app.services.document_processor import DocumentProcessor
 from app.services.embedding import EmbeddingService
 from app.services.llm import LLMService
@@ -162,6 +164,61 @@ async def _run_analysis_background(
             processor = DocumentProcessor()
             content_bytes = base64.b64decode(document_content_b64)
             document_text = processor.extract_text(content_bytes, file_type)
+
+            # --- Ingest into RAG indexes (skip if already indexed) ---
+            existing_segments = await segment_repo.get_by_document_id(document_id)
+            if not existing_segments:
+                try:
+                    chunker = TextChunker(
+                        chunk_size=settings.chunk_size,
+                        chunk_overlap=settings.chunk_overlap,
+                    )
+                    chunks = chunker.chunk_text(document_text)
+
+                    if chunks:
+                        chunk_texts = [c.content for c in chunks]
+                        embeddings = await embedding_service.embed_texts(chunk_texts)
+
+                        segments = []
+                        vector_store_ids = []
+                        for chunk in chunks:
+                            vs_id = str(uuid.uuid4())
+                            vector_store_ids.append(vs_id)
+                            segments.append(TextSegment(
+                                Id=uuid.uuid4(),
+                                DocumentId=document_id,
+                                Content=chunk.content,
+                                ChunkIndex=chunk.chunk_index,
+                                VectorStoreId=vs_id,
+                                CreatedAt=datetime.utcnow(),
+                            ))
+
+                        await segment_repo.bulk_create(segments)
+
+                        vector_store.add_vectors(embeddings, vector_store_ids)
+                        vector_store.save()
+
+                        bm25_store.add_documents(chunk_texts, vector_store_ids)
+                        bm25_store.save(f"{settings.faiss_index_path}/bm25_index.pkl")
+
+                        await session.commit()
+                        logger.info(
+                            "Document indexed for RAG",
+                            document_id=str(document_id),
+                            segments=len(segments),
+                        )
+                except Exception as ingest_err:
+                    logger.error(
+                        "RAG ingestion failed, continuing with analysis",
+                        error=str(ingest_err),
+                        document_id=str(document_id),
+                    )
+            else:
+                logger.info(
+                    "Document already indexed, skipping ingestion",
+                    document_id=str(document_id),
+                    segments=len(existing_segments),
+                )
 
             # Build agents
             hybrid_retriever = HybridRetriever(

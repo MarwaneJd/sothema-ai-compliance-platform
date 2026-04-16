@@ -20,7 +20,23 @@ export async function getAnalysis(id: string): Promise<ComplianceAnalysis> {
     return analysis;
   }
   const res = await api.get(`/api/compliance/${id}`);
-  return res.data;
+  const data = res.data;
+
+  data.details = parseDetails(data.details);
+  return data;
+}
+
+export async function getAnalysesByDocument(documentId: string): Promise<ComplianceAnalysis[]> {
+  if (USE_MOCK) {
+    await delay(200);
+    return mockAnalyses.filter((a) => a.documentId === documentId);
+  }
+  const res = await api.get(`/api/compliance/document/${documentId}`);
+  const items = Array.isArray(res.data) ? res.data : res.data.items ?? [];
+  return items.map((d: ComplianceAnalysis) => {
+    d.details = parseDetails(d.details);
+    return d;
+  });
 }
 
 export async function triggerAnalysis(documentId: string): Promise<{ jobId: string; status: string }> {
@@ -30,6 +46,20 @@ export async function triggerAnalysis(documentId: string): Promise<{ jobId: stri
   }
   const res = await api.post('/api/compliance/analyze', { documentId });
   return res.data;
+}
+
+function parseDetails(raw: unknown): ComplianceAnalysis['details'] {
+  let obj = raw;
+  if (typeof obj === 'string' && obj) {
+    try { obj = JSON.parse(obj); } catch { return null; }
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  // API returns { categories: { documentation, ... } } — unwrap to match frontend type
+  const record = obj as Record<string, unknown>;
+  if (record.categories && typeof record.categories === 'object') {
+    return record.categories as ComplianceAnalysis['details'];
+  }
+  return obj as ComplianceAnalysis['details'];
 }
 
 function delay(ms: number) {

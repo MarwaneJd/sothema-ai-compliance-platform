@@ -30,6 +30,20 @@ export async function searchDocuments(query: string, page = 1, pageSize = 10): P
     return paginateMock(filtered, page, pageSize);
   }
   const res = await api.get('/api/documents/search', { params: { q: query, page, pageSize } });
+  // Backend search returns an array of results, wrap in pagination if needed
+  const data = res.data;
+  if (Array.isArray(data)) {
+    return paginateMock(data, page, pageSize);
+  }
+  return data;
+}
+
+export async function uploadDocument(file: File): Promise<{ id: string; title: string; fileType: string; ingestionJob: { jobId: string; status: string } }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await api.post('/api/dev/ingest', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
   return res.data;
 }
 

@@ -104,7 +104,7 @@ class RAGPipeline:
 
         context = "\n\n---\n\n".join(context_parts)
 
-        # 5. Generate response via LLM
+        # 5. Generate response via LLM (fallback to raw chunks if LLM unavailable)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -113,7 +113,24 @@ class RAGPipeline:
             },
         ]
 
-        answer = await self.llm_service.generate(messages)
+        try:
+            answer = await self.llm_service.generate(messages)
+        except Exception as llm_err:
+            logger.warning(
+                "LLM unavailable, returning raw retrieval results",
+                error=str(llm_err)[:200],
+            )
+            # Build a readable fallback from the retrieved chunks
+            fallback_parts = []
+            for src in sources[:5]:
+                fallback_parts.append(
+                    f"**{src.document_title}** (Chunk {src.chunk_index}):\n{src.content_preview}..."
+                )
+            answer = (
+                "*LLM is temporarily unavailable (rate limit or error). "
+                "Here are the most relevant document excerpts:*\n\n"
+                + "\n\n---\n\n".join(fallback_parts)
+            )
 
         logger.info(
             "RAG pipeline complete",

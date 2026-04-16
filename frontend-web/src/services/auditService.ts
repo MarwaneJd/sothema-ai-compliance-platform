@@ -8,7 +8,7 @@ export async function getAuditLogs(page = 1, pageSize = 10, action?: string): Pr
     const filtered = action ? mockAuditLogs.filter((l) => l.action === action) : mockAuditLogs;
     return paginateMock(filtered, page, pageSize);
   }
-  const res = await api.get('/api/audit', { params: { page, pageSize, action } });
+  const res = await api.get('/api/audit', { params: { page, pageSize, entityType: action } });
   return res.data;
 }
 

@@ -1,6 +1,7 @@
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64   # Runs under Rosetta on Apple Silicon — works fine
     environment:
       ACCEPT_EULA: "Y"
       SA_PASSWORD: "${SA_PASSWORD}"
@@ -16,9 +17,13 @@ services:
     ports:
       - "5000:8080"
     environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - UseDevAuth=true
       - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=SothemaCompliance;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=true
-      - AzureAd__ClientSecret=${AZURE_AD_CLIENT_SECRET}
-      - AiService__BaseUrl=http://ai-service:8000
+      - AiService__BaseUrl=http://ai-service:8000/
+      - AiService__ApiKey=${AI_SERVICE_API_KEY}
+      - Cors__AllowedOrigins__0=http://localhost:3000
+      - Cors__AllowedOrigins__1=http://frontend-web
     depends_on:
       - sqlserver
       - ai-service
@@ -32,13 +37,15 @@ services:
     environment:
       - AI_SERVICE_API_KEY=${AI_SERVICE_API_KEY}
       - AI_SERVICE_DATABASE_CONNECTION_STRING=mssql+aioodbc:///?odbc_connect=Driver={ODBC Driver 18 for SQL Server};Server=sqlserver,1433;Database=SothemaCompliance;UID=sa;PWD=${SA_PASSWORD};TrustServerCertificate=yes
-      - AI_SERVICE_LLM_PROVIDER=${LLM_PROVIDER:-azure}
+      - AI_SERVICE_LLM_PROVIDER=${LLM_PROVIDER:-groq}
       - AI_SERVICE_AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AI_SERVICE_AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - AI_SERVICE_AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2024-06-01}
       - AI_SERVICE_AZURE_OPENAI_CHAT_DEPLOYMENT=${AZURE_OPENAI_CHAT_DEPLOYMENT:-gpt-4o}
       - AI_SERVICE_GROQ_API_KEY=${GROQ_API_KEY:-}
       - AI_SERVICE_GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - AI_SERVICE_OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      - AI_SERVICE_OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:4b}
       - AI_SERVICE_EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
       - AI_SERVICE_FAISS_INDEX_PATH=/app/data/faiss_indexes
     volumes:

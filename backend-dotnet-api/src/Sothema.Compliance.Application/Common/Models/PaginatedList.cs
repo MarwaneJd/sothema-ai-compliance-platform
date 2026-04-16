@@ -1,20 +1,29 @@
+using System.Text.Json.Serialization;
+
 namespace Sothema.Compliance.Application.Common.Models;
 
 public class PaginatedList<T>
 {
+    [JsonPropertyName("items")]
     public IReadOnlyList<T> Items { get; }
-    public int TotalCount { get; }
-    public int PageIndex { get; }
-    public int PageSize { get; }
-    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
-    public bool HasPreviousPage => PageIndex > 1;
-    public bool HasNextPage => PageIndex < TotalPages;
 
-    public PaginatedList(IReadOnlyList<T> items, int totalCount, int pageIndex, int pageSize)
+    [JsonPropertyName("totalCount")]
+    public int TotalCount { get; }
+
+    [JsonPropertyName("page")]
+    public int Page { get; }
+
+    [JsonPropertyName("pageSize")]
+    public int PageSize { get; }
+
+    [JsonPropertyName("totalPages")]
+    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+
+    public PaginatedList(IReadOnlyList<T> items, int totalCount, int page, int pageSize)
     {
         Items = items;
         TotalCount = totalCount;
-        PageIndex = pageIndex;
+        Page = page;
         PageSize = pageSize;
     }
 }

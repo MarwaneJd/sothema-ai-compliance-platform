@@ -1,10 +1,11 @@
-"""Search endpoint — hybrid document search (no agents, direct retrieval)."""
+"""Search endpoint — hybrid RAG search with LLM answer generation."""
 
 import uuid
 from datetime import datetime
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import Depends
+from fastapi.routing import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas.search import SearchRequest, SearchResponse, SearchResult
@@ -20,10 +21,13 @@ from app.dependencies import (
     get_db_session,
     get_embedding_service,
     get_hybrid_retriever,
+    get_llm_service,
     get_text_segment_repo,
 )
 from app.rag.hybrid_retriever import HybridRetriever
+from app.rag.pipeline import RAGPipeline
 from app.services.embedding import EmbeddingService
+from app.services.llm import LLMService
 
 logger = structlog.get_logger()
 
@@ -36,59 +40,41 @@ async def search_documents(
     session: AsyncSession = Depends(get_db_session),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
     hybrid_retriever: HybridRetriever = Depends(get_hybrid_retriever),
+    llm_service: LLMService = Depends(get_llm_service),
     segment_repo: TextSegmentRepository = Depends(get_text_segment_repo),
     ai_request_repo: AiRequestRepository = Depends(get_ai_request_repo),
     ai_request_segment_repo: AiRequestSegmentRepository = Depends(get_ai_request_segment_repo),
 ) -> SearchResponse:
-    """Hybrid document search — combines vector and BM25 retrieval with RRF fusion."""
-    # 1. Embed the query
-    query_embedding = await embedding_service.embed_query(request.query)
+    """Hybrid RAG search — retrieves relevant chunks then generates an LLM answer."""
 
-    # 2. Hybrid retrieve
-    retrieved = await hybrid_retriever.retrieve(
-        query=request.query,
-        query_embedding=query_embedding,
-        top_k=request.top_k,
+    # 1. Run the full RAG pipeline (retrieve + LLM answer)
+    rag = RAGPipeline(
+        hybrid_retriever=hybrid_retriever,
+        embedding_service=embedding_service,
+        llm_service=llm_service,
+        segment_repo=segment_repo,
     )
 
-    if not retrieved:
-        return SearchResponse(query=request.query, results=[], total_results=0)
+    rag_response = await rag.query(question=request.query, top_k=request.top_k)
 
-    # 3. Fetch TextSegment records from DB
-    vector_store_ids = [r.vector_store_id for r in retrieved]
-    segments = await segment_repo.get_by_vector_store_ids(vector_store_ids)
-
-    segment_map = {s.VectorStoreId: s for s in segments if s.VectorStoreId}
-    rrf_map = {r.vector_store_id: r for r in retrieved}
-
-    # 4. Build results
-    results: list[SearchResult] = []
-    matched_segments = []
-
-    for vs_id in vector_store_ids:
-        segment = segment_map.get(vs_id)
-        if segment is None:
-            continue
-
-        matched_segments.append(segment)
-        doc = segment.document
-        rrf = rrf_map[vs_id]
-
-        results.append(
-            SearchResult(
-                document_id=segment.DocumentId,
-                document_title=doc.Title if doc else "Unknown",
-                segment_content=segment.Content,
-                chunk_index=segment.ChunkIndex,
-                relevance_score=rrf.rrf_score,
-                vector_store_id=vs_id,
-            )
+    # 2. Build search results from sources
+    results: list[SearchResult] = [
+        SearchResult(
+            document_id=src.document_id,
+            document_title=src.document_title,
+            segment_content=src.content_preview,
+            chunk_index=src.chunk_index,
+            relevance_score=src.relevance_score,
+            vector_store_id="",
         )
+        for src in rag_response.sources
+    ]
 
-    # 5. Create AiRequest + AiRequestSegment records for audit trail
+    # 3. Audit trail
     ai_request = AiRequest(
         Id=uuid.uuid4(),
         Question=request.query,
+        Response=rag_response.answer,
         CreatedAt=datetime.utcnow(),
     )
     await ai_request_repo.create(ai_request)
@@ -96,12 +82,10 @@ async def search_documents(
     ai_segments = [
         AiRequestSegment(
             AiRequestId=ai_request.Id,
-            TextSegmentId=segment.Id,
-            RelevanceScore=rrf_map.get(segment.VectorStoreId, None)
-            and rrf_map[segment.VectorStoreId].rrf_score,
+            TextSegmentId=seg.Id,
+            RelevanceScore=src.relevance_score,
         )
-        for segment in matched_segments
-        if segment.VectorStoreId
+        for seg, src in zip(rag_response.segments, rag_response.sources)
     ]
     if ai_segments:
         await ai_request_segment_repo.bulk_create(ai_segments)
@@ -109,13 +93,15 @@ async def search_documents(
     await session.commit()
 
     logger.info(
-        "Search complete",
+        "RAG search complete",
         query_preview=request.query[:100],
         results_count=len(results),
+        answer_length=len(rag_response.answer),
     )
 
     return SearchResponse(
         query=request.query,
+        answer=rag_response.answer,
         results=results,
         total_results=len(results),
     )

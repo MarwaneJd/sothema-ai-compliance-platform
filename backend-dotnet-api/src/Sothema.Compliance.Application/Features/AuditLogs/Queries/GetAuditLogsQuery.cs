@@ -9,7 +9,7 @@ namespace Sothema.Compliance.Application.Features.AuditLogs.Queries;
 
 public record GetAuditLogsQuery : IRequest<Result<PaginatedList<AuditLogDto>>>
 {
-    public int PageIndex { get; init; } = 1;
+    public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 50;
     public string? EntityType { get; init; }
     public string? EntityId { get; init; }
@@ -47,13 +47,13 @@ public class GetAuditLogsQueryHandler
 
         var pagedItems = logs
             .OrderByDescending(l => l.Timestamp)
-            .Skip((request.PageIndex - 1) * request.PageSize)
+            .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .ToList();
 
         var dtos = _mapper.Map<List<AuditLogDto>>(pagedItems);
 
         return Result<PaginatedList<AuditLogDto>>.Success(
-            new PaginatedList<AuditLogDto>(dtos, totalCount, request.PageIndex, request.PageSize));
+            new PaginatedList<AuditLogDto>(dtos, totalCount, request.Page, request.PageSize));
     }
 }

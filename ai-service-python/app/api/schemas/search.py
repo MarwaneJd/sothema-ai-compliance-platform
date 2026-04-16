@@ -19,5 +19,6 @@ class SearchResult(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
+    answer: str
     results: list[SearchResult]
     total_results: int
