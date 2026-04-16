@@ -52,7 +52,12 @@ export default function Documents() {
       // Navigate to the new document after a brief delay
       setTimeout(() => navigate(`/documents/${result.id}`), 1500);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Upload failed';
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : 'Upload failed';
       setUploadMsg(msg);
     } finally {
       setUploading(false);

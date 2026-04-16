@@ -81,17 +81,28 @@ public class DevController : ControllerBase
 
         await _documentRepository.AddAsync(document, cancellationToken);
 
-        // Send to AI service for indexing
-        var job = await _aiService.RequestAnalysisAsync(
-            document.Id, content, document.FileType, document.Title, cancellationToken);
+        // Send to AI service for indexing (best-effort — upload succeeds even if AI is unavailable)
+        object? ingestionJob = null;
+        try
+        {
+            var job = await _aiService.RequestAnalysisAsync(
+                document.Id, content, document.FileType, document.Title, cancellationToken);
+            ingestionJob = new { job.JobId, job.Status };
+        }
+        catch (Exception ex)
+        {
+            ingestionJob = new { JobId = (string?)null, Status = "ai_unavailable" };
+            // Log but don't fail the upload
+            Console.WriteLine($"[DevController] AI service unavailable, skipping analysis: {ex.Message}");
+        }
 
         return Ok(new
         {
             document.Id,
             document.Title,
             document.FileType,
-            IngestionJob = new { job.JobId, job.Status },
-            Message = "Document ingested and analysis queued. Poll GET /api/compliance/{jobId} for results."
+            IngestionJob = ingestionJob,
+            Message = "Document ingested. Poll GET /api/compliance/{jobId} for results."
         });
     }
 
