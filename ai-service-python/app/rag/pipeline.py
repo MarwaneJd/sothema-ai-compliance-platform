@@ -47,6 +47,52 @@ class RAGPipeline:
         self.llm_service = llm_service
         self.segment_repo = segment_repo
 
+    async def retrieve_only(self, question: str, top_k: int = 10) -> RAGResponse:
+        """Hybrid retrieval without LLM — fast, free, fully transparent.
+        Same shape as `query()` but `answer` is empty."""
+
+        query_embedding = await self.embedding_service.embed_query(question)
+        retrieved: list[RetrievedSegment] = await self.hybrid_retriever.retrieve(
+            query=question,
+            query_embedding=query_embedding,
+            top_k=top_k,
+        )
+
+        if not retrieved:
+            return RAGResponse(answer="", sources=[], segments=[])
+
+        vector_store_ids = [r.vector_store_id for r in retrieved]
+        segments = await self.segment_repo.get_by_vector_store_ids(vector_store_ids)
+        segment_map = {s.VectorStoreId: s for s in segments if s.VectorStoreId}
+        rrf_map = {r.vector_store_id: r for r in retrieved}
+
+        sources: list[SourceReference] = []
+        ordered_segments: list[TextSegment] = []
+        for vs_id in vector_store_ids:
+            segment = segment_map.get(vs_id)
+            if segment is None:
+                continue
+            ordered_segments.append(segment)
+            doc = segment.document
+            doc_title = doc.Title if doc else "Unknown"
+            rrf_result = rrf_map.get(vs_id)
+            sources.append(
+                SourceReference(
+                    document_id=str(segment.DocumentId),
+                    document_title=doc_title,
+                    chunk_index=segment.ChunkIndex,
+                    content_preview=segment.Content[:500],
+                    relevance_score=rrf_result.rrf_score if rrf_result else 0.0,
+                )
+            )
+
+        logger.info(
+            "Retrieval-only search complete",
+            question_preview=question[:100],
+            sources_count=len(sources),
+        )
+        return RAGResponse(answer="", sources=sources, segments=ordered_segments)
+
     async def query(self, question: str, top_k: int = 10) -> RAGResponse:
         # 1. Embed the question
         query_embedding = await self.embedding_service.embed_query(question)

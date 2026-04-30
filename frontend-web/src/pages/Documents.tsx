@@ -47,7 +47,7 @@ export default function Documents() {
     setUploadMsg('');
     try {
       const result = await uploadDocument(file);
-      setUploadMsg(`"${result.title}" uploaded — analysis started.`);
+      setUploadMsg(`"${result.title}" uploaded and indexed. Open it to trigger analysis.`);
       fetchDocs();
       // Navigate to the new document after a brief delay
       setTimeout(() => navigate(`/documents/${result.id}`), 1500);

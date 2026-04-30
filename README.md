@@ -37,7 +37,7 @@ AI Service (Python FastAPI + LangGraph)
 | Backend API        | ASP.NET Core (.NET 9)                            |
 | AI Service         | Python, FastAPI, LangGraph, LangChain            |
 | LLM                | Azure OpenAI (GPT-4o) / Groq (Llama 3.3)        |
-| Embeddings         | Sentence-Transformers (all-MiniLM-L6-v2)         |
+| Embeddings         | Sentence-Transformers (paraphrase-multilingual-MiniLM-L12-v2) |
 | Vector Database    | FAISS                                            |
 | Relational Database| SQL Server 2022                                  |
 | Authentication     | Microsoft Entra ID (OAuth2 / OIDC)               |

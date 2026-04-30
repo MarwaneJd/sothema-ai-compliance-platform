@@ -4,6 +4,8 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   sources?: ChatSource[];
+  /** When false, the assistant message represents a sources-only retrieval (no LLM). */
+  hasAnswer?: boolean;
 }
 
 export interface ChatSource {

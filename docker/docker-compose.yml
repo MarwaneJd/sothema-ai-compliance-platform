@@ -46,7 +46,7 @@ services:
       - AI_SERVICE_GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
       - AI_SERVICE_OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       - AI_SERVICE_OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:4b}
-      - AI_SERVICE_EMBEDDING_MODEL_NAME=all-MiniLM-L6-v2
+      - AI_SERVICE_EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-paraphrase-multilingual-MiniLM-L12-v2}
       - AI_SERVICE_FAISS_INDEX_PATH=/app/data/faiss_indexes
     volumes:
       - faiss-data:/app/data/faiss_indexes

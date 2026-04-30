@@ -28,10 +28,10 @@ public class SearchController : ControllerBase
             return BadRequest("Query must not be empty.");
 
         var result = await _aiService.SearchAsync(
-            request.Query, request.TopK, cancellationToken);
+            request.Query, request.TopK, request.IncludeAnswer, cancellationToken);
 
         return Ok(result);
     }
 
-    public record SearchRequest(string Query, int TopK = 10);
+    public record SearchRequest(string Query, int TopK = 10, bool IncludeAnswer = true);
 }

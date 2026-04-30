@@ -1,13 +1,11 @@
+import { LogOut } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
-import type { UserRole } from '@/types';
-
-const roles: UserRole[] = ['Admin', 'Analyst', 'Viewer'];
 
 export default function Settings() {
-  const { user, switchRole } = useAuth();
+  const { user, logout } = useAuth();
 
   if (!user) return null;
 
@@ -36,46 +34,16 @@ export default function Settings() {
         </div>
       </Card>
 
-      {/* Role Switcher (Dev Mode) */}
+      {/* Session */}
       <Card>
-        <div className="flex items-center gap-2 mb-4">
-          <h2 className="text-lg font-semibold text-sothema-dark">Role Switcher</h2>
-          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-[10px] font-bold rounded uppercase">Dev</span>
+        <h2 className="text-lg font-semibold text-sothema-dark mb-4">Session</h2>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">Sign out of your account on this device.</p>
+          <Button variant="danger" onClick={logout}>
+            <LogOut className="h-4 w-4 mr-2" />
+            Sign out
+          </Button>
         </div>
-        <p className="text-sm text-gray-500 mb-4">
-          Switch between roles to test different permission levels. This is only available in mock mode.
-        </p>
-        <div className="flex gap-3">
-          {roles.map((role) => (
-            <Button
-              key={role}
-              variant={user.role === role ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => switchRole(role)}
-            >
-              {role}
-            </Button>
-          ))}
-        </div>
-      </Card>
-
-      {/* App Info */}
-      <Card>
-        <h2 className="text-lg font-semibold text-sothema-dark mb-4">Application Info</h2>
-        <dl className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <dt className="text-gray-500">API Base URL</dt>
-            <dd className="text-sothema-dark font-mono text-xs mt-1">{import.meta.env.VITE_API_BASE_URL || 'N/A'}</dd>
-          </div>
-          <div>
-            <dt className="text-gray-500">Mock Mode</dt>
-            <dd className="mt-1"><Badge>{import.meta.env.VITE_USE_MOCK !== 'false' ? 'Enabled' : 'Disabled'}</Badge></dd>
-          </div>
-          <div>
-            <dt className="text-gray-500">Version</dt>
-            <dd className="text-sothema-dark font-mono text-xs mt-1">0.1.0</dd>
-          </div>
-        </dl>
       </Card>
     </div>
   );

@@ -2,14 +2,23 @@ import type { ChatQueryResponse } from '@/types';
 import api, { USE_MOCK } from './api';
 import { getMockChatResponse } from '@/mocks/chat';
 
-export async function queryCompliance(question: string): Promise<ChatQueryResponse> {
+export async function queryCompliance(
+  question: string,
+  options?: { includeAnswer?: boolean },
+): Promise<ChatQueryResponse> {
+  const includeAnswer = options?.includeAnswer ?? true;
+
   if (USE_MOCK) {
-    await delay(800 + Math.random() * 1200); // Simulate LLM thinking time
-    return getMockChatResponse(question);
+    await delay(800 + Math.random() * 1200);
+    const mock = getMockChatResponse(question);
+    return includeAnswer ? mock : { answer: '', sources: mock.sources };
   }
 
-  // Real mode: call the backend which proxies to the AI service RAG pipeline
-  const res = await api.post('/api/search', { query: question, topK: 10 });
+  const res = await api.post('/api/search', {
+    query: question,
+    topK: 10,
+    includeAnswer,
+  });
 
   const results = res.data.results || [];
   const sources = results.map((r: Record<string, unknown>) => ({
@@ -20,7 +29,10 @@ export async function queryCompliance(question: string): Promise<ChatQueryRespon
     relevanceScore: r.relevanceScore ?? r.relevance_score,
   }));
 
-  // Use answer from backend if available, otherwise summarize from results
+  if (!includeAnswer) {
+    return { answer: '', sources };
+  }
+
   let answer = res.data.answer || '';
   if (!answer && sources.length > 0) {
     answer = `Based on ${sources.length} relevant document segment(s) found:\n\n` +

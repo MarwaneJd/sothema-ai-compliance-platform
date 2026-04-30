@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, FileText, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { Send, Bot, FileText, ChevronDown, ChevronUp, Sparkles, Search } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
 import { queryCompliance } from '@/services/chatService';
 import { suggestedQuestions } from '@/mocks/chat';
 import type { ChatMessage, ChatSource } from '@/types';
+
+type SearchMode = 'ai' | 'sources';
+
+const MODE_STORAGE_KEY = 'sothema:chat-mode';
 
 export default function Chat() {
   const { user } = useAuth();
@@ -19,8 +23,16 @@ export default function Chat() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<SearchMode>(() => {
+    const stored = localStorage.getItem(MODE_STORAGE_KEY);
+    return stored === 'sources' ? 'sources' : 'ai';
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(MODE_STORAGE_KEY, mode);
+  }, [mode]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -46,13 +58,14 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      const response = await queryCompliance(q);
+      const response = await queryCompliance(q, { includeAnswer: mode === 'ai' });
       const assistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-reply`,
         role: 'assistant',
         content: response.answer,
         timestamp: new Date().toISOString(),
         sources: response.sources,
+        hasAnswer: mode === 'ai',
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch {
@@ -87,15 +100,12 @@ export default function Chat() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] animate-in mt-2 mb-4">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold text-gradient pb-1">Compliance Assistant</h1>
           <p className="text-sm text-slate-500 mt-1">Ask questions about regulations, GMP, and compliance documents</p>
         </div>
-        <div className="flex items-center gap-2 text-xs font-semibold text-sothema-primary bg-sothema-primary/10 px-3 py-1.5 rounded-full">
-          <Sparkles className="h-4 w-4" />
-          <span>Powered by RAG + LLM</span>
-        </div>
+        <ModeToggle mode={mode} onChange={setMode} />
       </div>
 
       {/* Messages area */}
@@ -117,7 +127,7 @@ export default function Chat() {
                     <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                     <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                   </div>
-                  Searching compliance documents...
+                  {mode === 'ai' ? 'Searching compliance documents…' : 'Retrieving ranked sources…'}
                 </div>
               </div>
             </div>
@@ -150,7 +160,11 @@ export default function Chat() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about compliance regulations, GMP, ICH guidelines..."
+            placeholder={
+              mode === 'ai'
+                ? 'Ask about compliance regulations, GMP, ICH guidelines...'
+                : 'Search keywords or describe what you’re looking for...'
+            }
             rows={1}
             className="w-full resize-none rounded-xl border border-slate-200 shadow-sm px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-sothema-primary/20 focus:border-sothema-primary transition-all"
             style={{ minHeight: '48px', maxHeight: '120px' }}
@@ -182,16 +196,25 @@ function MessageBubble({ message, userInitials }: { message: ChatMessage; userIn
         {isUser ? userInitials : <Bot className="h-4 w-4" />}
       </div>
 
-      <div className={`max-w-[75%] ${isUser ? 'text-right' : ''}`}>
-        <div
-          className={`rounded-lg px-4 py-3 text-sm leading-relaxed ${
-            isUser ? 'bg-sothema-cyan text-white' : 'bg-gray-50 text-sothema-dark'
-          }`}
-        >
-          <FormattedContent content={message.content} isUser={isUser} />
-        </div>
+      <div className={`max-w-[85%] ${isUser ? 'text-right' : 'w-full'}`}>
+        {/* User bubble OR assistant in AI mode renders the answer text */}
+        {(isUser || message.hasAnswer !== false) && message.content && (
+          <div
+            className={`rounded-lg px-4 py-3 text-sm leading-relaxed ${
+              isUser ? 'bg-sothema-cyan text-white inline-block' : 'bg-gray-50 text-sothema-dark'
+            }`}
+          >
+            <FormattedContent content={message.content} isUser={isUser} />
+          </div>
+        )}
 
-        {message.sources && message.sources.length > 0 && (
+        {/* Sources-only mode → big polished ranked list */}
+        {!isUser && message.hasAnswer === false && (
+          <RetrievalResults sources={message.sources ?? []} />
+        )}
+
+        {/* AI mode → small accordion below the answer */}
+        {!isUser && message.hasAnswer !== false && message.sources && message.sources.length > 0 && (
           <SourcesAccordion sources={message.sources} />
         )}
 
@@ -200,6 +223,134 @@ function MessageBubble({ message, userInitials }: { message: ChatMessage; userIn
         </p>
       </div>
     </div>
+  );
+}
+
+function ModeToggle({ mode, onChange }: { mode: SearchMode; onChange: (m: SearchMode) => void }) {
+  return (
+    <div className="inline-flex items-center bg-slate-100 rounded-full p-1 shadow-inner">
+      <button
+        type="button"
+        onClick={() => onChange('ai')}
+        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+          mode === 'ai'
+            ? 'bg-white text-sothema-primary shadow-sm'
+            : 'text-slate-500 hover:text-slate-700'
+        }`}
+        aria-pressed={mode === 'ai'}
+        title="AI-generated answer with citations (uses LLM)"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        AI Answer
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('sources')}
+        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+          mode === 'sources'
+            ? 'bg-white text-sothema-primary shadow-sm'
+            : 'text-slate-500 hover:text-slate-700'
+        }`}
+        aria-pressed={mode === 'sources'}
+        title="Ranked excerpts only — fast, no LLM, fully transparent"
+      >
+        <Search className="h-3.5 w-3.5" />
+        Sources only
+      </button>
+    </div>
+  );
+}
+
+function RetrievalResults({ sources }: { sources: ChatSource[] }) {
+  if (sources.length === 0) {
+    return (
+      <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-6 text-center">
+        <FileText className="h-6 w-6 mx-auto text-slate-300 mb-2" />
+        <p className="text-sm text-slate-500">No matching excerpts found.</p>
+        <p className="text-xs text-slate-400 mt-1">Try different keywords or upload more documents.</p>
+      </div>
+    );
+  }
+
+  const maxScore = Math.max(...sources.map((s) => s.relevanceScore), 0.0001);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+        <span className="font-semibold uppercase tracking-wide">
+          {sources.length} ranked excerpt{sources.length !== 1 ? 's' : ''}
+        </span>
+        <span className="text-[10px]">RRF score · vector + BM25 fusion</span>
+      </div>
+      {sources.map((source, i) => (
+        <RetrievalCard
+          key={`${source.documentId}-${source.chunkIndex}-${i}`}
+          rank={i + 1}
+          source={source}
+          relativeScore={source.relevanceScore / maxScore}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RetrievalCard({
+  rank,
+  source,
+  relativeScore,
+}: {
+  rank: number;
+  source: ChatSource;
+  relativeScore: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = source.segmentContent.length > 240 && !expanded
+    ? source.segmentContent.slice(0, 240) + '…'
+    : source.segmentContent;
+
+  return (
+    <Card className="!p-0 !shadow-none border border-slate-200 hover:border-sothema-cyan/40 hover:shadow-sm transition-all overflow-hidden">
+      <div className="flex">
+        <div className="flex flex-col items-center justify-center bg-slate-50 border-r border-slate-200 px-3 py-3 min-w-[56px]">
+          <span className="text-xs text-slate-400 font-mono">#{rank}</span>
+          <span className="text-base font-bold text-sothema-primary mt-0.5">
+            {(source.relevanceScore * 100).toFixed(1)}
+          </span>
+          <span className="text-[9px] text-slate-400 uppercase tracking-wider">score</span>
+        </div>
+
+        <div className="flex-1 p-3 min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-1.5">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-sothema-dark truncate" title={source.documentTitle}>
+                {source.documentTitle}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Chunk {source.chunkIndex}</p>
+            </div>
+          </div>
+
+          {/* Relevance bar */}
+          <div className="h-1 bg-slate-100 rounded-full overflow-hidden mb-2">
+            <div
+              className="h-full bg-gradient-to-r from-sothema-cyan to-sothema-primary transition-all"
+              style={{ width: `${Math.max(relativeScore * 100, 4)}%` }}
+            />
+          </div>
+
+          <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{preview}</p>
+
+          {source.segmentContent.length > 240 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="text-[11px] text-sothema-cyan hover:text-sothema-navy mt-1.5 font-medium"
+            >
+              {expanded ? 'Show less' : 'Show full excerpt'}
+            </button>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 

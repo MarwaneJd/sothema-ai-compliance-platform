@@ -55,7 +55,11 @@ async def search_documents(
         segment_repo=segment_repo,
     )
 
-    rag_response = await rag.query(question=request.query, top_k=request.top_k)
+    rag_response = (
+        await rag.query(question=request.query, top_k=request.top_k)
+        if request.include_answer
+        else await rag.retrieve_only(question=request.query, top_k=request.top_k)
+    )
 
     # 2. Build search results from sources
     results: list[SearchResult] = [
