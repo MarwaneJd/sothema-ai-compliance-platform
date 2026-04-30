@@ -81,7 +81,7 @@ public class IngestDocumentCommandHandler
         var content = await _sharePointService.GetDocumentContentAsync(
             request.SiteId, request.DriveId, request.SharePointItemId, cancellationToken);
 
-        await _aiService.RequestAnalysisAsync(
+        await _aiService.IngestDocumentAsync(
             document.Id, content, document.FileType, document.Title, cancellationToken);
 
         return Result<DocumentDto>.Success(_mapper.Map<DocumentDto>(document));

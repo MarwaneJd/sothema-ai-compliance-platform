@@ -1,8 +1,12 @@
+using Azure.Identity;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Graph;
 using Sothema.Compliance.Application.Common.Interfaces;
 using Sothema.Compliance.Domain.Interfaces;
+using Sothema.Compliance.Infrastructure.Auth;
 using Sothema.Compliance.Infrastructure.Persistence;
 using Sothema.Compliance.Infrastructure.Persistence.Repositories;
 using Sothema.Compliance.Infrastructure.Services;
@@ -52,16 +56,46 @@ public static class DependencyInjection
         }
         else
         {
-            // Production: register real SharePointService with GraphServiceClient
-            // Requires Microsoft.Identity.Web.MicrosoftGraph and Entra ID configuration
-            services.AddSingleton<ISharePointService, StubSharePointService>();
-            // TODO: Replace with real SharePointService when credentials are available
-            // services.AddScoped<ISharePointService, SharePointService>();
+            services.AddScoped<ISharePointService, SharePointService>();
         }
 
         // Current User
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
+
+        // DB-backed role resolution (adds ClaimTypes.Role from Users table on each authenticated request)
+        services.AddScoped<IClaimsTransformation, DatabaseRoleClaimsTransformation>();
+
+        // SharePoint sync (webhooks + delta polling)
+        services.Configure<SharePointSyncOptions>(
+            configuration.GetSection(SharePointSyncOptions.SectionName));
+
+        var syncEnabled = configuration.GetValue<bool>(
+            $"{SharePointSyncOptions.SectionName}:Enabled");
+
+        if (syncEnabled)
+        {
+            // App-only Graph client for background services (no user context).
+            // Uses client-credentials flow with Sites.ReadWrite.All app permission.
+            services.AddSingleton<AppGraphClient>(sp =>
+            {
+                var tenantId = configuration["AzureAd:TenantId"]
+                    ?? throw new InvalidOperationException("AzureAd:TenantId is required for SharePoint sync.");
+                var clientId = configuration["AzureAd:ClientId"]
+                    ?? throw new InvalidOperationException("AzureAd:ClientId is required for SharePoint sync.");
+                var clientSecret = configuration["AzureAd:ClientSecret"]
+                    ?? throw new InvalidOperationException("AzureAd:ClientSecret (user-secret) is required for SharePoint sync.");
+
+                var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+                var graph = new GraphServiceClient(credential,
+                    new[] { "https://graph.microsoft.com/.default" });
+                return new AppGraphClient(graph);
+            });
+
+            services.AddScoped<ISyncProcessor, SharePointSyncProcessor>();
+            services.AddHostedService<DeltaSyncService>();
+            services.AddHostedService<SubscriptionRenewalService>();
+        }
 
         return services;
     }

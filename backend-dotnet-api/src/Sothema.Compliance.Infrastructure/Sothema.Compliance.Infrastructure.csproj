@@ -10,7 +10,9 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
     <PackageReference Include="Microsoft.Graph" Version="5.62.0" />
+    <PackageReference Include="Microsoft.Identity.Web.GraphServiceClient" Version="3.13.0" />
   </ItemGroup>
 
   <ItemGroup>

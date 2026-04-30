@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Microsoft.Graph.Search.Query;
@@ -8,17 +9,35 @@ namespace Sothema.Compliance.Infrastructure.Services;
 
 public class SharePointService : ISharePointService
 {
-    private readonly GraphServiceClient _graphClient;
+    private readonly GraphServiceClient _oboClient;
+    private readonly AppGraphClient? _appClient;
+    private readonly IHttpContextAccessor _httpContext;
 
-    public SharePointService(GraphServiceClient graphClient)
+    public SharePointService(
+        GraphServiceClient oboClient,
+        IHttpContextAccessor httpContext,
+        AppGraphClient? appClient = null)
     {
-        _graphClient = graphClient;
+        _oboClient = oboClient;
+        _httpContext = httpContext;
+        _appClient = appClient;
+    }
+
+    /// <summary>
+    /// OBO when a user is on the request (preserves SharePoint ACL),
+    /// app-only when running headless (background sync, webhook dispatch).
+    /// </summary>
+    private GraphServiceClient PickClient()
+    {
+        var hasUser = _httpContext.HttpContext?.User?.Identity?.IsAuthenticated == true;
+        if (!hasUser && _appClient is not null) return _appClient.Client;
+        return _oboClient;
     }
 
     public async Task<IReadOnlyList<SharePointSearchResultDto>> SearchDocumentsAsync(
         string query, CancellationToken cancellationToken = default)
     {
-        var searchResult = await _graphClient.Search.Query.PostAsQueryPostResponseAsync(
+        var searchResult = await PickClient().Search.Query.PostAsQueryPostResponseAsync(
             new QueryPostRequestBody
             {
                 Requests = new List<SearchRequest>
@@ -70,7 +89,7 @@ public class SharePointService : ISharePointService
         string siteId, string driveId, string itemId,
         CancellationToken cancellationToken = default)
     {
-        var stream = await _graphClient.Drives[driveId]
+        var stream = await PickClient().Drives[driveId]
             .Items[itemId]
             .Content
             .GetAsync(cancellationToken: cancellationToken);
@@ -87,7 +106,7 @@ public class SharePointService : ISharePointService
         string siteId, string driveId, string itemId,
         CancellationToken cancellationToken = default)
     {
-        var driveItem = await _graphClient.Drives[driveId]
+        var driveItem = await PickClient().Drives[driveId]
             .Items[itemId]
             .GetAsync(cancellationToken: cancellationToken);
 

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Sothema.Compliance.Application.Common.Interfaces;
 using Sothema.Compliance.Domain.Entities;
@@ -82,18 +82,17 @@ public class DevController : ControllerBase
         await _documentRepository.AddAsync(document, cancellationToken);
 
         // Send to AI service for indexing (best-effort — upload succeeds even if AI is unavailable)
-        object? ingestionJob = null;
+        object ingestionStatus;
         try
         {
-            var job = await _aiService.RequestAnalysisAsync(
+            await _aiService.IngestDocumentAsync(
                 document.Id, content, document.FileType, document.Title, cancellationToken);
-            ingestionJob = new { job.JobId, job.Status };
+            ingestionStatus = new { Status = "indexed" };
         }
         catch (Exception ex)
         {
-            ingestionJob = new { JobId = (string?)null, Status = "ai_unavailable" };
-            // Log but don't fail the upload
-            Console.WriteLine($"[DevController] AI service unavailable, skipping analysis: {ex.Message}");
+            ingestionStatus = new { Status = "ai_unavailable" };
+            Console.WriteLine($"[DevController] AI service unavailable, skipping indexing: {ex.Message}");
         }
 
         return Ok(new
@@ -101,8 +100,8 @@ public class DevController : ControllerBase
             document.Id,
             document.Title,
             document.FileType,
-            IngestionJob = ingestionJob,
-            Message = "Document ingested. Poll GET /api/compliance/{jobId} for results."
+            Ingestion = ingestionStatus,
+            Message = "Document ingested and indexed. Trigger analysis explicitly via POST /api/compliance/analyze."
         });
     }
 

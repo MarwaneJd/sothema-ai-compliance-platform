@@ -19,6 +19,7 @@ public class ComplianceDbContext : DbContext
     public DbSet<Agent> Agents => Set<Agent>();
     public DbSet<AiRequest> AiRequests => Set<AiRequest>();
     public DbSet<AiRequestSegment> AiRequestSegments => Set<AiRequestSegment>();
+    public DbSet<SharePointSyncState> SharePointSyncStates => Set<SharePointSyncState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -68,10 +68,10 @@ public class AiServiceClient : IAiService
     }
 
     public async Task<AiSearchResponseDto> SearchAsync(
-        string query, int topK = 10,
+        string query, int topK = 10, bool includeAnswer = true,
         CancellationToken cancellationToken = default)
     {
-        var payload = new { query, top_k = topK };
+        var payload = new { query, top_k = topK, include_answer = includeAnswer };
 
         var response = await _httpClient.PostAsJsonAsync(
             "api/search", payload, cancellationToken);
@@ -81,5 +81,34 @@ public class AiServiceClient : IAiService
             cancellationToken: cancellationToken);
 
         return result ?? new AiSearchResponseDto();
+    }
+
+    public async Task IngestDocumentAsync(
+        Guid documentId, byte[] content, string fileType, string title,
+        CancellationToken cancellationToken = default)
+    {
+        var payload = new
+        {
+            document_id = documentId,
+            content = Convert.ToBase64String(content),
+            file_type = fileType,
+            title = title
+        };
+
+        var response = await _httpClient.PostAsJsonAsync(
+            "api/documents/ingest", payload, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task RemoveDocumentAsync(
+        Guid documentId, CancellationToken cancellationToken = default)
+    {
+        var response = await _httpClient.DeleteAsync(
+            $"api/documents/{documentId}", cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return;
+
+        response.EnsureSuccessStatusCode();
     }
 }

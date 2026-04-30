@@ -12,7 +12,7 @@ public class ComplianceAnalysisConfiguration : IEntityTypeConfiguration<Complian
 
         builder.Property(ca => ca.Summary)
             .IsRequired()
-            .HasMaxLength(2000);
+            .HasColumnType("nvarchar(max)");
 
         builder.Property(ca => ca.Details)
             .HasColumnType("nvarchar(max)");

@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Identity.Web;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Sothema.Compliance.Api.Middleware;
@@ -35,14 +37,11 @@ try
     }
     else
     {
-        // Production: Entra ID JWT Bearer
-        builder.Services.AddAuthentication()
-            .AddJwtBearer(options =>
-            {
-                var azureAd = builder.Configuration.GetSection("AzureAd");
-                options.Authority = $"{azureAd["Instance"]}{azureAd["TenantId"]}/v2.0";
-                options.Audience = azureAd["ClientId"];
-            });
+        // Production: Entra ID via Microsoft.Identity.Web (JWT + downstream Graph)
+        builder.Services.AddMicrosoftIdentityWebApiAuthentication(builder.Configuration)
+            .EnableTokenAcquisitionToCallDownstreamApi()
+            .AddMicrosoftGraph(builder.Configuration.GetSection("MicrosoftGraph"))
+            .AddInMemoryTokenCaches();
     }
 
     // Authorization policies
@@ -120,12 +119,12 @@ try
 
     var app = builder.Build();
 
-    // Auto-migrate database in development
+    // Auto-apply migrations in development
     if (app.Environment.IsDevelopment())
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<Sothema.Compliance.Infrastructure.Persistence.ComplianceDbContext>();
-        db.Database.EnsureCreated();
+        db.Database.Migrate();
     }
 
     // Middleware pipeline
