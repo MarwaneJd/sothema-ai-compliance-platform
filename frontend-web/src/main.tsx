@@ -1,10 +1,25 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { MsalProvider } from '@azure/msal-react'
 import './index.css'
 import App from './App.tsx'
+import { msalInstance } from './auth/msalConfig'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+async function bootstrap() {
+  if (msalInstance) {
+    await msalInstance.initialize();
+    await msalInstance.handleRedirectPromise();
+  }
+
+  const app = (
+    <StrictMode>
+      <App />
+    </StrictMode>
+  );
+
+  createRoot(document.getElementById('root')!).render(
+    msalInstance ? <MsalProvider instance={msalInstance}>{app}</MsalProvider> : app,
+  );
+}
+
+bootstrap();

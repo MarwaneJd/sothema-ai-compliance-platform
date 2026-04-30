@@ -1,5 +1,5 @@
 import { useLocation } from 'react-router-dom';
-import { Bell } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Badge } from '@/components/ui/Badge';
 
@@ -14,7 +14,7 @@ const routeLabels: Record<string, string> = {
 
 export function TopBar() {
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   const segments = location.pathname.split('/').filter(Boolean);
   const breadcrumbs = [
@@ -63,6 +63,13 @@ export function TopBar() {
             <p className="text-sm font-semibold text-sothema-dark leading-tight">{user?.displayName}</p>
             <Badge variant="role">{user?.role || 'Viewer'}</Badge>
           </div>
+          <button
+            onClick={logout}
+            title="Sign out"
+            className="ml-2 text-slate-400 hover:text-red-600 transition-colors"
+          >
+            <LogOut className="h-5 w-5" />
+          </button>
         </div>
       </div>
     </header>

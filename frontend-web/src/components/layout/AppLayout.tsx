@@ -1,11 +1,18 @@
 import { useContext } from 'react';
 import { Outlet } from 'react-router-dom';
 import { SidebarContext } from '@/context/SidebarContext';
+import { useAuth } from '@/hooks/useAuth';
+import Login from '@/pages/Login';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 
 export function AppLayout() {
   const { collapsed } = useContext(SidebarContext);
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
 
   return (
     <div className="min-h-screen bg-sothema-bg">
