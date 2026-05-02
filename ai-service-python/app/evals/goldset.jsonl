@@ -1,0 +1,21 @@
+# Goldset for RAG retrieval evaluation. JSON Lines format — one query per line.
+# Lines starting with `#` and blank lines are ignored.
+#
+# Schema (see app/evals/goldset.py for validation):
+#   id:                    string, unique
+#   query:                 string, the user question
+#   language:              "fr" | "ar" | "en"
+#   intent:                "definition" | "procedure" | "list" | "comparison" | "lookup" | "multi_hop"
+#   relevant_segment_ids:  list[string] — TextSegment.VectorStoreId values that should rank
+#   reference_answer:      string, optional, used by the LLM-as-judge
+#   notes:                 string, optional, free-form context
+#
+# Until real labeled queries are added by a domain expert, this file is empty
+# and the eval runner returns {"n_queries": 0}. To bootstrap:
+#   1. Pick a representative document, ingest it, note the VectorStoreIds of
+#      the chunks that contain answers to questions you care about.
+#   2. Hand-write 5-10 queries per intent class (definition / procedure / etc).
+#   3. Add one JSON line per query below.
+#
+# Example (commented out — uncomment and substitute real ids to use):
+# {"id": "q-001", "query": "Quelle est la fréquence du contrôle microbiologique ?", "language": "fr", "intent": "lookup", "relevant_segment_ids": ["REPLACE-WITH-REAL-VECTOR-STORE-ID"], "reference_answer": "Le contrôle microbiologique est effectué chaque jour."}

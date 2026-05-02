@@ -61,7 +61,9 @@ async def search_documents(
         else await rag.retrieve_only(question=request.query, top_k=request.top_k)
     )
 
-    # 2. Build search results from sources
+    # 2. Build search results from sources. `segments` and `sources` are
+    #    emitted in the same order by the pipeline, so we zip to attach
+    #    the VectorStoreId — needed by goldset labelling tools.
     results: list[SearchResult] = [
         SearchResult(
             document_id=src.document_id,
@@ -69,9 +71,9 @@ async def search_documents(
             segment_content=src.content_preview,
             chunk_index=src.chunk_index,
             relevance_score=src.relevance_score,
-            vector_store_id="",
+            vector_store_id=seg.VectorStoreId or "",
         )
-        for src in rag_response.sources
+        for seg, src in zip(rag_response.segments, rag_response.sources)
     ]
 
     # 3. Audit trail

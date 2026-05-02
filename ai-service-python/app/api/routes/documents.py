@@ -27,7 +27,7 @@ from app.dependencies import (
 )
 from app.rag.bm25_store import BM25Store
 from app.rag.vector_store import FAISSVectorStore
-from app.services.chunking import TextChunker
+from app.services.chunking import RegulatoryChunker
 from app.services.document_processor import DocumentProcessor
 from app.services.embedding import EmbeddingService
 
@@ -67,19 +67,24 @@ async def ingest_document(
     # Extract text
     text = processor.extract_text(content_bytes, request.file_type)
 
-    # Chunk text
-    chunker = TextChunker(
+    # Chunk text — RegulatoryChunker emits hierarchy-aware chunks with
+    # a section breadcrumb attached. The breadcrumb is prepended at index
+    # time so semantic + lexical retrieval see section context, but the
+    # raw `Content` we persist to SQL stays clean for display.
+    chunker = RegulatoryChunker(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
+        document_title=document.Title,
     )
     chunks = chunker.chunk_text(text)
 
     if not chunks:
         raise DocumentProcessingError("No text chunks produced from document")
 
-    # Generate embeddings
-    chunk_texts = [c.content for c in chunks]
-    embeddings = await embedding_service.embed_texts(chunk_texts)
+    # Texts that go into the FAISS + BM25 indexes carry the breadcrumb;
+    # texts that go into SQL do not.
+    indexing_texts = [c.for_indexing() for c in chunks]
+    embeddings = await embedding_service.embed_texts(indexing_texts)
 
     # Create TextSegment records and assign VectorStoreIds
     segments: list[TextSegment] = []
@@ -106,8 +111,9 @@ async def ingest_document(
     vector_store.add_vectors(embeddings, vector_store_ids)
     vector_store.save()
 
-    # Add to BM25 index
-    bm25_store.add_documents(chunk_texts, vector_store_ids)
+    # Add to BM25 index — breadcrumb-prefixed text so section keywords
+    # ("Article 4", "4.2.1", "Échantillonnage") are searchable.
+    bm25_store.add_documents(indexing_texts, vector_store_ids)
     bm25_store.save(f"{settings.faiss_index_path}/bm25_index.pkl")
 
     await session.commit()
