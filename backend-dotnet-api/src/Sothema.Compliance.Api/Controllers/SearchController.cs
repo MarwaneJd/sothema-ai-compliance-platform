@@ -1,6 +1,9 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Sothema.Compliance.Application.Common.Interfaces;
+using Sothema.Compliance.Domain.Entities;
+using Sothema.Compliance.Domain.Interfaces;
 
 namespace Sothema.Compliance.Api.Controllers;
 
@@ -10,10 +13,17 @@ namespace Sothema.Compliance.Api.Controllers;
 public class SearchController : ControllerBase
 {
     private readonly IAiService _aiService;
+    private readonly IAuditLogRepository _auditLogRepository;
+    private readonly ICurrentUserService _currentUserService;
 
-    public SearchController(IAiService aiService)
+    public SearchController(
+        IAiService aiService,
+        IAuditLogRepository auditLogRepository,
+        ICurrentUserService currentUserService)
     {
         _aiService = aiService;
+        _auditLogRepository = auditLogRepository;
+        _currentUserService = currentUserService;
     }
 
     /// <summary>
@@ -29,6 +39,34 @@ public class SearchController : ControllerBase
 
         var result = await _aiService.SearchAsync(
             request.Query, request.TopK, request.IncludeAnswer, cancellationToken);
+
+        try
+        {
+            var details = JsonSerializer.Serialize(new
+            {
+                query = request.Query,
+                top_k = request.TopK,
+                include_answer = request.IncludeAnswer,
+                results_count = result.Results.Count,
+                has_answer = result.Answer != null,
+            });
+
+            await _auditLogRepository.AddAsync(new AuditLog
+            {
+                UserId = _currentUserService.ObjectId,
+                Action = "SearchQuery",
+                EntityType = "Search",
+                EntityId = request.Query.Length <= 200
+                    ? request.Query
+                    : request.Query[..200],
+                Timestamp = DateTime.UtcNow,
+                Details = details,
+            }, cancellationToken);
+        }
+        catch
+        {
+            // Audit failure must never affect the search response.
+        }
 
         return Ok(result);
     }

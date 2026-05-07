@@ -9,4 +9,5 @@ public record AuditLogDto
     public string EntityId { get; init; } = string.Empty;
     public DateTime Timestamp { get; init; }
     public string? Details { get; init; }
+    public string? UserName { get; init; }
 }

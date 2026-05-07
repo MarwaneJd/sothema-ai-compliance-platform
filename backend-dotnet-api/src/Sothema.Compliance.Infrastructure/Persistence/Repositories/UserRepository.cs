@@ -16,4 +16,13 @@ public class UserRepository : RepositoryBase<User>, IUserRepository
         return await DbSet
             .FirstOrDefaultAsync(u => u.EntraObjectId == entraObjectId, cancellationToken);
     }
+
+    public async Task<IReadOnlyDictionary<string, string>> GetDisplayNamesByObjectIdsAsync(
+        IEnumerable<string> objectIds, CancellationToken cancellationToken = default)
+    {
+        var ids = objectIds.ToList();
+        return await DbSet
+            .Where(u => ids.Contains(u.EntraObjectId))
+            .ToDictionaryAsync(u => u.EntraObjectId, u => u.DisplayName, cancellationToken);
+    }
 }

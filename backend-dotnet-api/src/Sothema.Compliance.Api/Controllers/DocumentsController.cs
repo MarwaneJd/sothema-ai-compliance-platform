@@ -78,4 +78,22 @@ public class DocumentsController : ControllerBase
 
         return CreatedAtAction(nameof(GetDocumentById), new { id = result.Value!.Id }, result.Value);
     }
+
+    // Cascades to FAISS + BM25 (via AI service) + TextSegments + Document row.
+    // Admin-only because deletion is destructive and irreversible.
+    [HttpDelete("{id:guid}")]
+    [Authorize(Policy = "RequireAdmin")]
+    public async Task<IActionResult> DeleteDocument(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(
+            new RemoveDocumentCommand(id, DeleteDocumentRow: true),
+            cancellationToken);
+
+        if (!result.IsSuccess)
+            return BadRequest(result.Error);
+
+        // Result.Value is false when the document didn't exist.
+        return result.Value ? NoContent() : NotFound();
+    }
 }
