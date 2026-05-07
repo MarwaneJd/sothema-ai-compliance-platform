@@ -47,6 +47,20 @@ export async function uploadDocument(file: File): Promise<{ id: string; title: s
   return res.data;
 }
 
+// Cascades on the backend: AI service drops vectors/BM25 entries,
+// TextSegments are deleted, Document row removed. Returns void on
+// success (HTTP 204), throws on failure.
+export async function deleteDocument(id: string): Promise<void> {
+  if (USE_MOCK) {
+    await delay(200);
+    const idx = mockDocuments.findIndex((d) => d.id === id);
+    if (idx === -1) throw { message: 'Document not found', status: 404 };
+    mockDocuments.splice(idx, 1);
+    return;
+  }
+  await api.delete(`/api/documents/${id}`);
+}
+
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
