@@ -1,0 +1,17 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+data/
+.git
+.gitignore
+.env
+.env.local
+*.log
+.DS_Store
+README.md
+Dockerfile
+tests/

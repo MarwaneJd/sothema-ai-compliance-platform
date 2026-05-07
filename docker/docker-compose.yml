@@ -9,24 +9,13 @@ services:
       - "1433:1433"
     volumes:
       - sqlserver-data:/var/opt/mssql
-
-  backend-api:
-    build:
-      context: ../backend-dotnet-api
-      dockerfile: src/Sothema.Compliance.Api/Dockerfile
-    ports:
-      - "5000:8080"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - UseDevAuth=true
-      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=SothemaCompliance;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=true
-      - AiService__BaseUrl=http://ai-service:8000/
-      - AiService__ApiKey=${AI_SERVICE_API_KEY}
-      - Cors__AllowedOrigins__0=http://localhost:3000
-      - Cors__AllowedOrigins__1=http://frontend-web
-    depends_on:
-      - sqlserver
-      - ai-service
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$SA_PASSWORD\" -No -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
 
   ai-service:
     build:
@@ -47,20 +36,76 @@ services:
       - AI_SERVICE_OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       - AI_SERVICE_OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3:4b}
       - AI_SERVICE_EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-paraphrase-multilingual-MiniLM-L12-v2}
-      - AI_SERVICE_FAISS_INDEX_PATH=/app/data/faiss_indexes
+      - AI_SERVICE_EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-384}
+      - AI_SERVICE_FAISS_INDEX_PATH=/home/app/data/faiss_indexes
+      - AI_SERVICE_CHUNK_SIZE=${AI_SERVICE_CHUNK_SIZE:-512}
+      - AI_SERVICE_CHUNK_OVERLAP=${AI_SERVICE_CHUNK_OVERLAP:-50}
+      - AI_SERVICE_RRF_K=${AI_SERVICE_RRF_K:-60}
+      - AI_SERVICE_TOP_K_RESULTS=${AI_SERVICE_TOP_K_RESULTS:-10}
+      - AI_SERVICE_LOG_LEVEL=${AI_SERVICE_LOG_LEVEL:-info}
     volumes:
-      - faiss-data:/app/data/faiss_indexes
+      - faiss-data:/home/app/data/faiss_indexes
     depends_on:
-      - sqlserver
+      sqlserver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  backend-api:
+    build:
+      context: ../backend-dotnet-api
+      dockerfile: src/Sothema.Compliance.Api/Dockerfile
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=SothemaCompliance;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=true
+      - AiService__BaseUrl=http://ai-service:8000/
+      - AiService__ApiKey=${AI_SERVICE_API_KEY}
+      - Cors__AllowedOrigins__0=http://localhost:3000
+      - Cors__AllowedOrigins__1=http://frontend-web
+      - AzureAd__ClientSecret=${AZURE_AD_CLIENT_SECRET}
+      - SharePointSync__WebhookBaseUrl=${SHAREPOINT_WEBHOOK_BASE_URL}
+      - SharePointSync__WebhookClientState=${SHAREPOINT_WEBHOOK_CLIENT_STATE}
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
 
   frontend-web:
     build:
       context: ../frontend-web
       dockerfile: Dockerfile
+      args:
+        VITE_USE_MOCK: "false"
+        VITE_API_BASE_URL: ""
+        VITE_AZURE_CLIENT_ID: "${VITE_AZURE_CLIENT_ID:-}"
+        VITE_AZURE_TENANT_ID: "${VITE_AZURE_TENANT_ID:-}"
     ports:
-      - "3000:80"
+      - "3000:8080"
     depends_on:
-      - backend-api
+      backend-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
 
 volumes:
   sqlserver-data:
