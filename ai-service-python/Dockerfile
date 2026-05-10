@@ -23,6 +23,11 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 RUN python -c "from sentence_transformers import SentenceTransformer; \
     SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
 
+# Pre-bake the cross-encoder reranker (Phase 1). Multilingual MiniLM, ~120MB —
+# fast on CPU, FR/AR/EN-trained on mMARCO.
+RUN python -c "from sentence_transformers import CrossEncoder; \
+    CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1', max_length=256)"
+
 # ───────────────────────────────────────────────────
 # Stage 2: runtime (slim, ODBC driver only, no build tools)
 # ───────────────────────────────────────────────────

@@ -15,6 +15,7 @@ from app.db.repositories import (
     AiRequestSegmentRepository,
     TextSegmentRepository,
 )
+from app.config import Settings
 from app.dependencies import (
     get_ai_request_repo,
     get_ai_request_segment_repo,
@@ -22,10 +23,15 @@ from app.dependencies import (
     get_embedding_service,
     get_hybrid_retriever,
     get_llm_service,
+    get_multi_query_retriever,
+    get_reranker,
+    get_settings,
     get_text_segment_repo,
 )
 from app.rag.hybrid_retriever import HybridRetriever
+from app.rag.multi_query import MultiQueryRetriever
 from app.rag.pipeline import RAGPipeline
+from app.rag.reranker import CrossEncoderReranker
 from app.services.embedding import EmbeddingService
 from app.services.llm import LLMService
 
@@ -44,6 +50,9 @@ async def search_documents(
     segment_repo: TextSegmentRepository = Depends(get_text_segment_repo),
     ai_request_repo: AiRequestRepository = Depends(get_ai_request_repo),
     ai_request_segment_repo: AiRequestSegmentRepository = Depends(get_ai_request_segment_repo),
+    reranker: CrossEncoderReranker | None = Depends(get_reranker),
+    multi_query_retriever: MultiQueryRetriever | None = Depends(get_multi_query_retriever),
+    s: Settings = Depends(get_settings),
 ) -> SearchResponse:
     """Hybrid RAG search — retrieves relevant chunks then generates an LLM answer."""
 
@@ -53,6 +62,9 @@ async def search_documents(
         embedding_service=embedding_service,
         llm_service=llm_service,
         segment_repo=segment_repo,
+        reranker=reranker,
+        reranker_fetch_multiplier=s.reranker_fetch_multiplier,
+        multi_query_retriever=multi_query_retriever,
     )
 
     rag_response = (

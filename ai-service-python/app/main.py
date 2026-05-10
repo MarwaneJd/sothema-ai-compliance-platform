@@ -10,6 +10,7 @@ from app.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.security import verify_api_key
 from app.rag.bm25_store import BM25Store
+from app.rag.reranker import CrossEncoderReranker
 from app.rag.vector_store import FAISSVectorStore
 
 logger = structlog.get_logger()
@@ -45,6 +46,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         faiss_size=vector_store.size,
         bm25_size=bm25_store.size,
     )
+
+    # Cross-encoder reranker (Phase 1). Multilingual MiniLM (~120MB) — pre-baked
+    # in the Docker image so cold start doesn't hit HuggingFace.
+    if settings.enable_reranker:
+        app.state.reranker = CrossEncoderReranker.load(
+            settings.reranker_model,
+            max_length=settings.reranker_max_length,
+        )
+    else:
+        app.state.reranker = None
+        logger.info("Reranker disabled by config")
 
     yield
 

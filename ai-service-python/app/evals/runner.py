@@ -52,6 +52,98 @@ class HybridRetrieverProbe:
         return [r.vector_store_id for r in results]
 
 
+@dataclass
+class RerankedRetrieverProbe:
+    """Hybrid retrieve + cross-encoder rerank, projected to the ranked id list.
+
+    Mirrors `HybridRetrieverProbe` so eval results before/after Phase 1 are
+    directly comparable. Fetches `top_k * fetch_multiplier` candidates from
+    hybrid retrieval, then reranks to `top_k` using the cross-encoder.
+    """
+
+    hybrid_retriever: object  # app.rag.hybrid_retriever.HybridRetriever
+    embedding_service: object  # app.services.embedding.EmbeddingService
+    reranker: object  # app.rag.reranker.CrossEncoderReranker
+    segment_repo: object  # app.db.repositories.TextSegmentRepository
+    fetch_multiplier: int = 4
+
+    async def retrieve_ids(self, query: str, top_k: int) -> list[str]:
+        embedding = await self.embedding_service.embed_query(query)  # type: ignore[attr-defined]
+        fetch_k = top_k * self.fetch_multiplier
+        candidates = await self.hybrid_retriever.retrieve(  # type: ignore[attr-defined]
+            query=query, query_embedding=embedding, top_k=fetch_k
+        )
+        if not candidates:
+            return []
+
+        ids = [c.vector_store_id for c in candidates]
+        segments = await self.segment_repo.get_by_vector_store_ids(ids)  # type: ignore[attr-defined]
+        seg_by_id = {s.VectorStoreId: s for s in segments if s.VectorStoreId}
+
+        aligned_candidates = []
+        aligned_texts = []
+        for c in candidates:
+            seg = seg_by_id.get(c.vector_store_id)
+            if seg is None:
+                continue
+            aligned_candidates.append(c)
+            aligned_texts.append(seg.Content)
+
+        reranked = await self.reranker.rerank(  # type: ignore[attr-defined]
+            query=query,
+            candidates=aligned_candidates,
+            candidate_texts=aligned_texts,
+            top_n=top_k,
+        )
+        return [r.vector_store_id for r in reranked]
+
+
+@dataclass
+class MultiQueryRetrieverProbe:
+    """Multi-query expansion + hybrid retrieve + (optional) rerank.
+
+    When `reranker` and `segment_repo` are provided, runs the full Phase 1+2
+    Fast-mode pipeline. When omitted, runs multi-query without reranking — useful
+    for isolating Phase 2's contribution on top of Phase 1 in eval reports.
+    """
+
+    multi_query_retriever: object  # app.rag.multi_query.MultiQueryRetriever
+    fetch_multiplier: int = 4
+    reranker: object | None = None  # app.rag.reranker.CrossEncoderReranker
+    segment_repo: object | None = None  # app.db.repositories.TextSegmentRepository
+
+    async def retrieve_ids(self, query: str, top_k: int) -> list[str]:
+        fetch_k = top_k * self.fetch_multiplier if self.reranker else top_k
+        candidates = await self.multi_query_retriever.retrieve(  # type: ignore[attr-defined]
+            query=query, top_k=fetch_k
+        )
+        if not candidates:
+            return []
+        if self.reranker is None or self.segment_repo is None:
+            return [c.vector_store_id for c in candidates[:top_k]]
+
+        ids = [c.vector_store_id for c in candidates]
+        segments = await self.segment_repo.get_by_vector_store_ids(ids)  # type: ignore[attr-defined]
+        seg_by_id = {s.VectorStoreId: s for s in segments if s.VectorStoreId}
+
+        aligned_candidates = []
+        aligned_texts = []
+        for c in candidates:
+            seg = seg_by_id.get(c.vector_store_id)
+            if seg is None:
+                continue
+            aligned_candidates.append(c)
+            aligned_texts.append(seg.Content)
+
+        reranked = await self.reranker.rerank(  # type: ignore[attr-defined]
+            query=query,
+            candidates=aligned_candidates,
+            candidate_texts=aligned_texts,
+            top_n=top_k,
+        )
+        return [r.vector_store_id for r in reranked]
+
+
 async def evaluate_retrieval(
     goldset: Iterable[GoldEntry],
     retriever: RetrieverProtocol,

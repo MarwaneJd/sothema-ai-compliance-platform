@@ -92,3 +92,8 @@ docker/.env
 logs/
 tmp/
 temp/
+
+# =========================
+# Docs report (LaTeX build + generated PDFs/diagrams)
+# =========================
+docs/report/

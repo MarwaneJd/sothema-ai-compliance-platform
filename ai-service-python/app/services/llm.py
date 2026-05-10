@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from typing import Literal
 
 import structlog
 from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -14,9 +15,18 @@ logger = structlog.get_logger()
 MAX_RETRIES = 3
 BASE_DELAY = 1.0
 
+Tier = Literal["reasoning", "fast"]
+
 
 class LLMService:
-    """LLM chat completion wrapper supporting Azure OpenAI and Groq providers."""
+    """LLM chat completion wrapper supporting Azure OpenAI, Groq, and Ollama providers.
+
+    Two tiers per provider:
+      - tier="reasoning" — high-quality model for plan/generate (GPT-5.4 prod, Llama-3.3-70B dev)
+      - tier="fast" — cheaper model for verify/reflect/expand (GPT-5.4 mini prod, Llama-3.3-70B dev)
+
+    Call sites pick a tier; provider+model resolution is config-driven.
+    """
 
     def __init__(self, settings: Settings):
         if settings.llm_provider == "groq":
@@ -24,38 +34,60 @@ class LLMService:
                 api_key=settings.groq_api_key,
                 base_url="https://api.groq.com/openai/v1",
             )
-            self.model = settings.groq_model
-            logger.info("LLM provider initialized", provider="groq", model=self.model)
+            self._reasoning_model = settings.groq_model
+            self._fast_model = settings.groq_fast_model
+            provider = "groq"
         elif settings.llm_provider == "ollama":
             self.client = AsyncOpenAI(
                 api_key="ollama",  # Ollama requires a non-empty key; value is ignored
                 base_url=settings.ollama_base_url,
                 timeout=1800.0,  # 30 min for local CPU inference
             )
-            self.model = settings.ollama_model
-            logger.info("LLM provider initialized", provider="ollama", model=self.model)
+            # Ollama in dev only — single model serves both tiers.
+            self._reasoning_model = settings.ollama_model
+            self._fast_model = settings.ollama_model
+            provider = "ollama"
         else:
             self.client = AsyncAzureOpenAI(
                 azure_endpoint=settings.azure_openai_endpoint,
                 api_key=settings.azure_openai_api_key,
                 api_version=settings.azure_openai_api_version,
             )
-            self.model = settings.azure_openai_chat_deployment
-            logger.info("LLM provider initialized", provider="azure", model=self.model)
+            self._reasoning_model = settings.azure_openai_chat_deployment
+            self._fast_model = settings.azure_openai_chat_deployment_fast
+            provider = "azure"
+
+        logger.info(
+            "LLM provider initialized",
+            provider=provider,
+            reasoning_model=self._reasoning_model,
+            fast_model=self._fast_model,
+        )
+
+    @property
+    def model(self) -> str:
+        """Backwards-compatible alias for the reasoning-tier model."""
+        return self._reasoning_model
+
+    def _resolve_model(self, tier: Tier) -> str:
+        return self._fast_model if tier == "fast" else self._reasoning_model
 
     async def generate(
         self,
         messages: list[dict],
         temperature: float = 0.1,
         max_tokens: int = 4096,
+        *,
+        tier: Tier = "reasoning",
     ) -> str:
         """Generate a chat completion. Returns the response content string."""
+        model = self._resolve_model(tier)
         last_error: Exception | None = None
 
         for attempt in range(MAX_RETRIES):
             try:
                 response = await self.client.chat.completions.create(
-                    model=self.model,
+                    model=model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -66,7 +98,8 @@ class LLMService:
 
                 logger.info(
                     "LLM response generated",
-                    model=self.model,
+                    tier=tier,
+                    model=model,
                     prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
                     completion_tokens=response.usage.completion_tokens if response.usage else 0,
                 )
@@ -80,6 +113,8 @@ class LLMService:
                         "LLM request failed, retrying",
                         attempt=attempt + 1,
                         delay=delay,
+                        tier=tier,
+                        model=model,
                         error=str(e),
                     )
                     await asyncio.sleep(delay)
@@ -92,8 +127,11 @@ class LLMService:
         response_format: type[BaseModel],
         temperature: float = 0.1,
         max_tokens: int = 8192,
+        *,
+        tier: Tier = "reasoning",
     ) -> BaseModel:
         """Generate a structured response using JSON mode. Parses into the given Pydantic model."""
+        model = self._resolve_model(tier)
         last_error: Exception | None = None
 
         # Add JSON instruction to system message
@@ -114,7 +152,7 @@ class LLMService:
         for attempt in range(MAX_RETRIES):
             try:
                 response = await self.client.chat.completions.create(
-                    model=self.model,
+                    model=model,
                     messages=enhanced_messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -126,7 +164,8 @@ class LLMService:
 
                 logger.info(
                     "Structured LLM response generated",
-                    model=self.model,
+                    tier=tier,
+                    model=model,
                     prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
                     completion_tokens=response.usage.completion_tokens if response.usage else 0,
                 )
@@ -141,6 +180,8 @@ class LLMService:
                         "Structured LLM request failed, retrying",
                         attempt=attempt + 1,
                         delay=delay,
+                        tier=tier,
+                        model=model,
                         error=str(e),
                     )
                     await asyncio.sleep(delay)

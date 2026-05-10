@@ -15,6 +15,9 @@ from app.db.repositories import (
 from app.db.session import get_db
 from app.rag.bm25_store import BM25Store
 from app.rag.hybrid_retriever import HybridRetriever
+from app.rag.multi_query import MultiQueryRetriever
+from app.rag.query_expander import QueryExpander
+from app.rag.reranker import CrossEncoderReranker
 from app.rag.vector_store import FAISSVectorStore
 from app.services.document_processor import DocumentProcessor
 from app.services.embedding import EmbeddingService
@@ -108,4 +111,46 @@ def get_hybrid_retriever(
         vector_store=vector_store,
         bm25_store=bm25_store,
         k=s.rrf_k,
+    )
+
+
+def get_reranker(request: Request) -> CrossEncoderReranker | None:
+    """Singleton, loaded once at startup. Returns None if disabled."""
+    return getattr(request.app.state, "reranker", None)
+
+
+def get_query_expander(request: Request) -> QueryExpander | None:
+    """Singleton, lazily initialized on first use. Returns None if disabled."""
+    s = settings
+    if not s.enable_multi_query:
+        return None
+    expander = getattr(request.app.state, "query_expander", None)
+    if expander is None:
+        llm = LLMService(s)
+        expander = QueryExpander(
+            llm_service=llm,
+            n=s.multi_query_count,
+            timeout_ms=s.query_expansion_timeout_ms,
+            cache_size=s.query_expansion_cache_size,
+        )
+        request.app.state.query_expander = expander
+    return expander
+
+
+def get_multi_query_retriever(
+    request: Request,
+    hybrid_retriever: HybridRetriever = Depends(get_hybrid_retriever),
+    embedding_service: EmbeddingService = Depends(get_embedding_service),
+    s: Settings = Depends(get_settings),
+) -> MultiQueryRetriever | None:
+    """Returns None when multi-query is disabled — caller falls back to hybrid_retriever."""
+    expander = get_query_expander(request)
+    if expander is None:
+        return None
+    return MultiQueryRetriever(
+        hybrid_retriever=hybrid_retriever,
+        embedding_service=embedding_service,
+        query_expander=expander,
+        n_expansions=s.multi_query_count,
+        rrf_k=s.rrf_k,
     )

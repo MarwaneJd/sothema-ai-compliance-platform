@@ -17,6 +17,41 @@ class RetrievedSegment:
     bm25_rank: int | None
 
 
+def reciprocal_rank_fusion(
+    rankings: list[dict[str, int]],
+    k: int = 60,
+    top_k: int | None = None,
+) -> list[tuple[str, float]]:
+    """Reciprocal Rank Fusion across an arbitrary number of ranked id lists.
+
+    Each input dict maps `vector_store_id -> rank` (1-indexed). Items missing
+    from a ranking contribute 0 from that source. Returns `(id, score)` tuples
+    sorted by fused score descending. If `top_k` is given, truncates.
+
+    Used by both `HybridRetriever` (vector + BM25) and `MultiQueryRetriever`
+    (one ranking per rewritten query).
+    """
+    if not rankings:
+        return []
+    all_ids: set[str] = set()
+    for r in rankings:
+        all_ids.update(r.keys())
+
+    scores: dict[str, float] = {}
+    for vs_id in all_ids:
+        score = 0.0
+        for r in rankings:
+            rank = r.get(vs_id)
+            if rank is not None:
+                score += 1.0 / (k + rank)
+        scores[vs_id] = score
+
+    sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    if top_k is not None:
+        sorted_ids = sorted_ids[:top_k]
+    return [(vs_id, scores[vs_id]) for vs_id in sorted_ids]
+
+
 class HybridRetriever:
     """Combines FAISS vector search and BM25 keyword search using Reciprocal Rank Fusion."""
 
@@ -58,30 +93,18 @@ class HybridRetriever:
             bm25_ranks[vs_id] = rank
 
         # Reciprocal Rank Fusion
-        all_ids = set(vector_ranks.keys()) | set(bm25_ranks.keys())
-        rrf_scores: dict[str, float] = {}
-
-        for vs_id in all_ids:
-            score = 0.0
-            if vs_id in vector_ranks:
-                score += 1.0 / (self.k + vector_ranks[vs_id])
-            if vs_id in bm25_ranks:
-                score += 1.0 / (self.k + bm25_ranks[vs_id])
-            rrf_scores[vs_id] = score
-
-        # Sort by RRF score descending, take top_k
-        sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)[
-            :top_k
-        ]
+        fused = reciprocal_rank_fusion(
+            [vector_ranks, bm25_ranks], k=self.k, top_k=top_k
+        )
 
         results = [
             RetrievedSegment(
                 vector_store_id=vs_id,
-                rrf_score=rrf_scores[vs_id],
+                rrf_score=score,
                 vector_rank=vector_ranks.get(vs_id),
                 bm25_rank=bm25_ranks.get(vs_id),
             )
-            for vs_id in sorted_ids
+            for vs_id, score in fused
         ]
 
         logger.info(
