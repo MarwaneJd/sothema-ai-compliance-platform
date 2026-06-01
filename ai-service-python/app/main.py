@@ -88,9 +88,11 @@ register_exception_handlers(app)
 from app.api.routes.health import router as health_router  # noqa: E402
 from app.api.routes.documents import router as documents_router  # noqa: E402
 from app.api.routes.search import router as search_router  # noqa: E402
+from app.api.routes.agentic_search import router as agentic_search_router  # noqa: E402
 from app.api.routes.analysis import router as analysis_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(documents_router, dependencies=[Depends(verify_api_key)])
 app.include_router(search_router, dependencies=[Depends(verify_api_key)])
+app.include_router(agentic_search_router, dependencies=[Depends(verify_api_key)])
 app.include_router(analysis_router, dependencies=[Depends(verify_api_key)])

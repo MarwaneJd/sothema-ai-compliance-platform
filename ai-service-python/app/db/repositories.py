@@ -87,6 +87,37 @@ class TextSegmentRepository:
         )
         return list(result.scalars().all())
 
+    async def get_neighbors_by_vector_store_id(
+        self,
+        vector_store_id: str,
+        before: int = 1,
+        after: int = 1,
+    ) -> list[TextSegment]:
+        """Return adjacent chunks in the same document, ordered by ChunkIndex.
+
+        Used by the agentic-RAG `get_neighbors` tool to expand a partial chunk's
+        context. Inclusive of the anchor chunk itself, so a call with before=1
+        and after=1 returns up to 3 segments: [N-1, N, N+1].
+        """
+        anchor_result = await self.session.execute(
+            select(TextSegment).where(TextSegment.VectorStoreId == vector_store_id)
+        )
+        anchor = anchor_result.scalar_one_or_none()
+        if anchor is None:
+            return []
+
+        low = anchor.ChunkIndex - before
+        high = anchor.ChunkIndex + after
+        result = await self.session.execute(
+            select(TextSegment)
+            .options(selectinload(TextSegment.document))
+            .where(TextSegment.DocumentId == anchor.DocumentId)
+            .where(TextSegment.ChunkIndex >= low)
+            .where(TextSegment.ChunkIndex <= high)
+            .order_by(TextSegment.ChunkIndex)
+        )
+        return list(result.scalars().all())
+
     async def delete_by_document_id(self, doc_id: uuid.UUID) -> list[str]:
         """Delete all segments for a document. Returns list of VectorStoreIds for index cleanup."""
         segments = await self.get_by_document_id(doc_id)

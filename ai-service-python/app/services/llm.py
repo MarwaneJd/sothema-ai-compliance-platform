@@ -158,17 +158,34 @@ class LLMService:
                     max_tokens=max_tokens,
                     response_format={"type": "json_object"},
                 )
-                content = response.choices[0].message.content or "{}"
+                raw_content = response.choices[0].message.content
                 # Strip qwen3's <think>...</think> blocks if present
-                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                content = re.sub(
+                    r"<think>.*?</think>", "", raw_content or "", flags=re.DOTALL
+                ).strip()
 
+                completion_tokens = (
+                    response.usage.completion_tokens if response.usage else 0
+                )
                 logger.info(
                     "Structured LLM response generated",
                     tier=tier,
                     model=model,
                     prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-                    completion_tokens=response.usage.completion_tokens if response.usage else 0,
+                    completion_tokens=completion_tokens,
                 )
+
+                # Surface truncated / empty bodies as real errors. Previously
+                # `content or "{}"` silently substituted "{}", which validates
+                # against Pydantic models with defaults — producing a defaulted
+                # object (e.g. Groundedness(score=0.0)) indistinguishable from
+                # a real score. That hid Groq rate-limit-induced truncations.
+                if not content or content in ("{}", "[]"):
+                    raise LLMError(
+                        f"LLM returned empty/defaulted JSON content "
+                        f"(completion_tokens={completion_tokens}); "
+                        f"likely truncated under load"
+                    )
 
                 return response_format.model_validate_json(content)
 

@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     query_expansion_timeout_ms: int = 800  # fallback to original-query-only on timeout
     query_expansion_cache_size: int = 2048
 
+    # Agentic RAG (Phase 3 — Deep Analysis)
+    agent_max_iterations: int = 2  # plan→retrieve→reflect loop cap
+    agent_max_llm_calls: int = 8  # safety net across all nodes incl. retry
+    agent_max_wall_clock_ms: int = 25000  # hard wall-clock for the whole loop (raised from 15s because Groq retries on rate limit can eat 5-10s per call)
+    agent_groundedness_threshold: float = 0.75  # simple-factual threshold; verify node relaxes to 0.40 for comparative/multi-hop (sub_queries >= 2)
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
