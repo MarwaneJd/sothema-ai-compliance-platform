@@ -1,13 +1,24 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, FileText, ChevronDown, ChevronUp, Sparkles, Search } from 'lucide-react';
+import {
+  Send,
+  Bot,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  Search,
+  Brain,
+  ShieldCheck,
+  AlertTriangle,
+} from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
-import { queryCompliance } from '@/services/chatService';
+import { queryCompliance, queryDeepAnalysis } from '@/services/chatService';
 import { suggestedQuestions } from '@/mocks/chat';
-import type { ChatMessage, ChatSource } from '@/types';
+import type { ChatMessage, ChatSource, DeepAnalysisMeta } from '@/types';
 
-type SearchMode = 'ai' | 'sources';
+type SearchMode = 'ai' | 'deep' | 'sources';
 
 const MODE_STORAGE_KEY = 'sothema:chat-mode';
 
@@ -25,7 +36,8 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<SearchMode>(() => {
     const stored = localStorage.getItem(MODE_STORAGE_KEY);
-    return stored === 'sources' ? 'sources' : 'ai';
+    if (stored === 'sources' || stored === 'deep' || stored === 'ai') return stored;
+    return 'ai';
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -58,14 +70,18 @@ export default function Chat() {
     setLoading(true);
 
     try {
-      const response = await queryCompliance(q, { includeAnswer: mode === 'ai' });
+      const response =
+        mode === 'deep'
+          ? await queryDeepAnalysis(q)
+          : await queryCompliance(q, { includeAnswer: mode === 'ai' });
       const assistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-reply`,
         role: 'assistant',
         content: response.answer,
         timestamp: new Date().toISOString(),
         sources: response.sources,
-        hasAnswer: mode === 'ai',
+        hasAnswer: mode !== 'sources',
+        deepAnalysis: response.deepAnalysis,
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch {
@@ -115,23 +131,7 @@ export default function Chat() {
             <MessageBubble key={msg.id} message={msg} userInitials={initials} />
           ))}
 
-          {loading && (
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-sothema-navy text-white flex items-center justify-center flex-shrink-0">
-                <Bot className="h-4 w-4" />
-              </div>
-              <div className="bg-gray-50 rounded-lg px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-gray-500">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                  {mode === 'ai' ? 'Searching compliance documents…' : 'Retrieving ranked sources…'}
-                </div>
-              </div>
-            </div>
-          )}
+          {loading && <LoadingBubble mode={mode} />}
 
           <div ref={messagesEndRef} />
         </div>
@@ -161,9 +161,11 @@ export default function Chat() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              mode === 'ai'
-                ? 'Ask about compliance regulations, GMP, ICH guidelines...'
-                : 'Search keywords or describe what you’re looking for...'
+              mode === 'deep'
+                ? 'Ask a complex compliance question — agent will iterate, verify, and cite…'
+                : mode === 'ai'
+                  ? 'Ask about compliance regulations, GMP, ICH guidelines...'
+                  : 'Search keywords or describe what you’re looking for...'
             }
             rows={1}
             className="w-full resize-none rounded-xl border border-slate-200 shadow-sm px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-sothema-primary/20 focus:border-sothema-primary transition-all"
@@ -197,7 +199,12 @@ function MessageBubble({ message, userInitials }: { message: ChatMessage; userIn
       </div>
 
       <div className={`max-w-[85%] ${isUser ? 'text-right' : 'w-full'}`}>
-        {/* User bubble OR assistant in AI mode renders the answer text */}
+        {/* Low-confidence banner (only on Deep Analysis when verifier flagged it) */}
+        {!isUser && message.deepAnalysis?.lowConfidence && (
+          <LowConfidenceBanner score={message.deepAnalysis.groundednessScore} />
+        )}
+
+        {/* User bubble OR assistant in AI/Deep mode renders the answer text */}
         {(isUser || message.hasAnswer !== false) && message.content && (
           <div
             className={`rounded-lg px-4 py-3 text-sm leading-relaxed ${
@@ -208,12 +215,17 @@ function MessageBubble({ message, userInitials }: { message: ChatMessage; userIn
           </div>
         )}
 
+        {/* Deep Analysis metadata strip (groundedness badge, iterations, llm calls, elapsed) */}
+        {!isUser && message.deepAnalysis && (
+          <DeepAnalysisBadges meta={message.deepAnalysis} />
+        )}
+
         {/* Sources-only mode → big polished ranked list */}
         {!isUser && message.hasAnswer === false && (
           <RetrievalResults sources={message.sources ?? []} />
         )}
 
-        {/* AI mode → small accordion below the answer */}
+        {/* AI/Deep mode → small accordion below the answer */}
         {!isUser && message.hasAnswer !== false && message.sources && message.sources.length > 0 && (
           <SourcesAccordion sources={message.sources} />
         )}
@@ -227,36 +239,145 @@ function MessageBubble({ message, userInitials }: { message: ChatMessage; userIn
 }
 
 function ModeToggle({ mode, onChange }: { mode: SearchMode; onChange: (m: SearchMode) => void }) {
+  const btn = (active: boolean) =>
+    `flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+      active ? 'bg-white text-sothema-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'
+    }`;
+
   return (
     <div className="inline-flex items-center bg-slate-100 rounded-full p-1 shadow-inner">
       <button
         type="button"
         onClick={() => onChange('ai')}
-        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-          mode === 'ai'
-            ? 'bg-white text-sothema-primary shadow-sm'
-            : 'text-slate-500 hover:text-slate-700'
-        }`}
+        className={btn(mode === 'ai')}
         aria-pressed={mode === 'ai'}
-        title="AI-generated answer with citations (uses LLM)"
+        title="Fast — hybrid retrieval + reranker + multi-query, single LLM answer (~3–5s)"
       >
         <Sparkles className="h-3.5 w-3.5" />
-        AI Answer
+        Fast
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('deep')}
+        className={btn(mode === 'deep')}
+        aria-pressed={mode === 'deep'}
+        title="Deep Analysis — agentic loop with iterative retrieval, reflection, and groundedness verification (~5–15s)"
+      >
+        <Brain className="h-3.5 w-3.5" />
+        Deep Analysis
       </button>
       <button
         type="button"
         onClick={() => onChange('sources')}
-        className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-          mode === 'sources'
-            ? 'bg-white text-sothema-primary shadow-sm'
-            : 'text-slate-500 hover:text-slate-700'
-        }`}
+        className={btn(mode === 'sources')}
         aria-pressed={mode === 'sources'}
         title="Ranked excerpts only — fast, no LLM, fully transparent"
       >
         <Search className="h-3.5 w-3.5" />
         Sources only
       </button>
+    </div>
+  );
+}
+
+function LoadingBubble({ mode }: { mode: SearchMode }) {
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (mode !== 'deep') return;
+    const started = Date.now();
+    const id = window.setInterval(() => setElapsedMs(Date.now() - started), 250);
+    return () => window.clearInterval(id);
+  }, [mode]);
+
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-8 h-8 rounded-full bg-sothema-navy text-white flex items-center justify-center flex-shrink-0">
+        {mode === 'deep' ? <Brain className="h-4 w-4 animate-pulse" /> : <Bot className="h-4 w-4" />}
+      </div>
+      <div className="bg-gray-50 rounded-lg px-4 py-3">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex gap-1">
+            <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-2 h-2 bg-sothema-cyan rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+          {mode === 'deep' ? (
+            <span>
+              Analyzing… <span className="tabular-nums font-medium text-slate-600">{(elapsedMs / 1000).toFixed(1)}s</span>
+            </span>
+          ) : mode === 'ai' ? (
+            'Searching compliance documents…'
+          ) : (
+            'Retrieving ranked sources…'
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LowConfidenceBanner({ score }: { score: number }) {
+  // -1.0 is the backend sentinel meaning "verification did not run" (e.g. the
+  // verify LLM hit a rate limit). Any negative is treated the same way — the
+  // answer is shown but flagged as unverified rather than as "-100%".
+  const notVerified = score < 0;
+  return (
+    <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+      <div>
+        <p className="font-semibold">
+          {notVerified ? 'Answer not verified' : 'Low-confidence answer'}
+        </p>
+        <p className="text-amber-800 mt-0.5">
+          {notVerified
+            ? 'The groundedness verifier could not run (likely a transient service error). The answer is shown as generated — review the citations carefully before relying on it.'
+            : `The groundedness verifier scored this answer ${Math.round(score * 100)}% — some claims may not be fully supported by the cited sources. Review the citations before relying on this answer.`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DeepAnalysisBadges({ meta }: { meta: DeepAnalysisMeta }) {
+  // Backend uses -1.0 as a sentinel for "verify did not produce a real score"
+  // (rate-limited, timed out, malformed response). Don't multiply that by 100.
+  const notVerified = meta.groundednessScore < 0;
+  const grounded = notVerified ? null : Math.round(meta.groundednessScore * 100);
+  const goodGrounded = !notVerified && (grounded ?? 0) >= 70;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${
+          notVerified
+            ? 'bg-slate-100 text-slate-600 border border-slate-200'
+            : goodGrounded
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-amber-50 text-amber-800 border border-amber-200'
+        }`}
+        title={
+          notVerified
+            ? 'Verification did not run (service error). Answer shown as generated.'
+            : 'Groundedness — fraction of claims supported by retrieved sources'
+        }
+      >
+        <ShieldCheck className="h-3 w-3" />
+        {notVerified ? 'Not verified' : `${grounded}% grounded`}
+      </span>
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 border border-slate-200">
+        {meta.iterations === 0 ? 'single pass' : `${meta.iterations} iteration${meta.iterations > 1 ? 's' : ''}`}
+      </span>
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 border border-slate-200">
+        {meta.llmCalls} LLM call{meta.llmCalls !== 1 ? 's' : ''}
+      </span>
+      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 border border-slate-200 tabular-nums">
+        {(meta.elapsedMs / 1000).toFixed(1)}s
+      </span>
+      {meta.citations.length > 0 && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-sothema-cyan-light text-sothema-navy px-2 py-0.5 border border-sothema-cyan/30">
+          {meta.citations.length} citation{meta.citations.length !== 1 ? 's' : ''}
+        </span>
+      )}
     </div>
   );
 }

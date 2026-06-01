@@ -3,4 +3,10 @@ export type { ComplianceAnalysis, ComplianceDetails, CategoryScore, AnalysisStat
 export type { AuditLog } from './audit';
 export type { User, UserRole } from './user';
 export type { PaginatedResponse, ApiError } from './api';
-export type { ChatMessage, ChatSource, ChatQueryResponse } from './chat';
+export type {
+  ChatMessage,
+  ChatSource,
+  ChatQueryResponse,
+  ChatCitation,
+  DeepAnalysisMeta,
+} from './chat';
