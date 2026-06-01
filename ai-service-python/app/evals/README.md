@@ -8,7 +8,7 @@ chunking, BM25, fusion, or reranking can be A/B'd on a stable goldset.
 
 - `goldset.jsonl` — labeled queries. JSON Lines; see `goldset.py` for schema.
 - `goldset.py` — strict loader with schema validation.
-- `runner.py` — `evaluate_retrieval(goldset, retriever, top_k)` → ranx metrics.
+- `runner.py` — `evaluate_retrieval(goldset, retriever, top_k)` → recall@k / MRR@k / nDCG@k (computed in-house, no deps).
 - `judge.py` — `score_faithfulness` / `score_answer_relevance` LLM-as-judge.
 - `bootstrap.py` — interactive CLI to label new queries against the running service.
 
@@ -92,10 +92,17 @@ and off, compare. Promote the change to default only if `nDCG@10` and
 `faithfulness` both improve, or one improves while the other doesn't
 regress more than 2%.
 
-## Why not ragas?
+## Why no metrics library?
 
 `ragas` pulls in `langchain >= 0.3` which conflicts with this project's
 pinned `langchain-core==0.3.0` + `langgraph==0.2.0`. The thin
 `judge.py` here covers faithfulness and answer-relevance via the
 existing `LLMService` and avoids the dep clash. Revisit if/when the
 langchain pinning is loosened.
+
+`ranx` (the original retrieval-metrics backend) was removed for the same
+class of reason: it pulls the `zlib-state` C extension, which fails to
+build in the `python:3.12-slim` runtime image — so the harness could
+never run in Docker/CI. recall@k / MRR@k / nDCG@k are a handful of
+textbook formulas over the qrels/run dicts; `runner.py` now computes
+them in-house (binary relevance), zero dependencies.

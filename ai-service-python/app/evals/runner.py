@@ -16,6 +16,7 @@ Wrap the call in your own script with the FastAPI app's services:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Iterable, Protocol
 
@@ -144,6 +145,44 @@ class MultiQueryRetrieverProbe:
         return [r.vector_store_id for r in reranked]
 
 
+def _parse_metric(name: str) -> tuple[str, int]:
+    """'recall@10' -> ('recall', 10). Cutoff is required."""
+    base, _, cut = name.partition("@")
+    if not cut:
+        raise ValueError(f"metric {name!r} must specify a cutoff, e.g. '{name}@10'")
+    return base.lower(), int(cut)
+
+
+def _score_query(metric: str, k: int, ranked: list[str], gold: set[str]) -> float:
+    """Single-query metric, binary relevance.
+
+    - recall@k : |gold ∩ top-k| / |gold|
+    - mrr@k    : 1 / rank of first relevant in top-k (1-indexed), else 0
+    - ndcg@k   : DCG@k / IDCG@k, gain 1 per relevant, discount 1/log2(rank+1)
+    """
+    if not gold:
+        return 0.0
+    topk = ranked[:k]
+    if metric == "recall":
+        hits = sum(1 for d in topk if d in gold)
+        return hits / len(gold)
+    if metric == "mrr":
+        for i, d in enumerate(topk, start=1):
+            if d in gold:
+                return 1.0 / i
+        return 0.0
+    if metric == "ndcg":
+        dcg = sum(
+            1.0 / math.log2(i + 1)
+            for i, d in enumerate(topk, start=1)
+            if d in gold
+        )
+        ideal_hits = min(len(gold), k)
+        idcg = sum(1.0 / math.log2(i + 1) for i in range(1, ideal_hits + 1))
+        return dcg / idcg if idcg > 0 else 0.0
+    raise ValueError(f"unsupported metric base {metric!r}")
+
+
 async def evaluate_retrieval(
     goldset: Iterable[GoldEntry],
     retriever: RetrieverProtocol,
@@ -152,39 +191,33 @@ async def evaluate_retrieval(
 ) -> dict[str, float]:
     """Run the retriever over the goldset and compute aggregate metrics.
 
+    Metrics are computed in-house (recall@k / MRR@k / nDCG@k, binary
+    relevance) — no `ranx`. `ranx` pulls the `zlib-state` C extension which
+    won't build in the slim runtime image, so the harness could never run in
+    Docker/CI. Same rationale as the hand-rolled `judge.py` (avoids a fragile
+    heavy dep for a few textbook formulas).
+
     Empty goldset returns `{"n_queries": 0}` so CI doesn't fail before
     labeled data lands.
     """
-    from ranx import Qrels, Run, evaluate  # local import — keeps cold start fast
+    parsed = [(name, *_parse_metric(name)) for name in metrics]
 
-    qrels_dict: dict[str, dict[str, int]] = {}
-    run_dict: dict[str, dict[str, float]] = {}
-
+    per_metric_sums: dict[str, float] = {name: 0.0 for name in metrics}
     n = 0
     for entry in goldset:
         n += 1
-        # Qrels: relevance judgments. All gold ids are equally relevant (1).
-        qrels_dict[entry.id] = {seg_id: 1 for seg_id in entry.relevant_segment_ids}
-
-        retrieved = await retriever.retrieve_ids(entry.query, top_k=top_k)
-        # ranx expects a score per doc; we use reciprocal-rank as the score
-        # because we only have an ordering, not a normalized model score.
-        run_dict[entry.id] = {
-            doc_id: 1.0 / (rank + 1) for rank, doc_id in enumerate(retrieved)
-        }
+        gold = set(entry.relevant_segment_ids)
+        ranked = await retriever.retrieve_ids(entry.query, top_k=top_k)
+        for name, base, k in parsed:
+            per_metric_sums[name] += _score_query(base, k, ranked, gold)
 
     if n == 0:
         logger.warning("Empty goldset — no metrics to compute")
         return {"n_queries": 0}
 
-    qrels = Qrels(qrels_dict)
-    run = Run(run_dict)
-    raw_results = evaluate(qrels, run, list(metrics))
-    # ranx returns a bare scalar when given exactly one metric, dict otherwise.
-    if isinstance(raw_results, dict):
-        results = {k: float(v) for k, v in raw_results.items()}
-    else:
-        results = {metrics[0]: float(raw_results)}
+    results: dict[str, float] = {
+        name: per_metric_sums[name] / n for name in metrics
+    }
     results["n_queries"] = float(n)
     logger.info("Retrieval eval complete", **results)
     return results
