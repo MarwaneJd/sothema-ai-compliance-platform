@@ -15,6 +15,10 @@ public interface IAiService
         string query, int topK = 10, bool includeAnswer = true,
         CancellationToken cancellationToken = default);
 
+    Task<AiAgenticSearchResponseDto> AgenticSearchAsync(
+        string query, int topK = 10, int maxIterations = 2,
+        CancellationToken cancellationToken = default);
+
     Task IngestDocumentAsync(
         Guid documentId, byte[] content, string fileType, string title,
         CancellationToken cancellationToken = default);

@@ -75,3 +75,80 @@ public record AiSearchResultDto
     [JsonPropertyName("vector_store_id")]
     public string VectorStoreId { get; init; } = string.Empty;
 }
+
+// ─── Deep Analysis (agentic RAG) — POST /api/agentic-search ───────────────────
+
+/// <summary>Response from POST /api/agentic-search on the AI service (Phase 3).</summary>
+public record AiAgenticSearchResponseDto
+{
+    [JsonPropertyName("query")]
+    public string Query { get; init; } = string.Empty;
+
+    [JsonPropertyName("answer")]
+    public string Answer { get; init; } = string.Empty;
+
+    [JsonPropertyName("results")]
+    public List<AiSearchResultDto> Results { get; init; } = new();
+
+    [JsonPropertyName("total_results")]
+    public int TotalResults { get; init; }
+
+    [JsonPropertyName("citations")]
+    public List<AiCitationDto> Citations { get; init; } = new();
+
+    [JsonPropertyName("groundedness_score")]
+    public double GroundednessScore { get; init; }
+
+    [JsonPropertyName("low_confidence")]
+    public bool LowConfidence { get; init; }
+
+    [JsonPropertyName("iterations")]
+    public int Iterations { get; init; }
+
+    [JsonPropertyName("sub_queries")]
+    public List<string> SubQueries { get; init; } = new();
+
+    [JsonPropertyName("trace")]
+    public List<AiStepLogDto> Trace { get; init; } = new();
+
+    [JsonPropertyName("llm_calls")]
+    public int LlmCalls { get; init; }
+
+    [JsonPropertyName("elapsed_ms")]
+    public int ElapsedMs { get; init; }
+}
+
+/// <summary>Inline citation parsed from the agent's answer ([Source N] → chunk).</summary>
+public record AiCitationDto
+{
+    [JsonPropertyName("source_index")]
+    public int SourceIndex { get; init; }
+
+    [JsonPropertyName("document_id")]
+    public Guid DocumentId { get; init; }
+
+    [JsonPropertyName("document_title")]
+    public string DocumentTitle { get; init; } = string.Empty;
+
+    [JsonPropertyName("chunk_index")]
+    public int ChunkIndex { get; init; }
+
+    [JsonPropertyName("vector_store_id")]
+    public string VectorStoreId { get; init; } = string.Empty;
+}
+
+/// <summary>One step of the agent's execution trace — surfaced for debugging / audit.</summary>
+public record AiStepLogDto
+{
+    [JsonPropertyName("step")]
+    public string Step { get; init; } = string.Empty;
+
+    [JsonPropertyName("iteration")]
+    public int Iteration { get; init; }
+
+    [JsonPropertyName("elapsed_ms")]
+    public int ElapsedMs { get; init; }
+
+    [JsonPropertyName("detail")]
+    public string Detail { get; init; } = string.Empty;
+}

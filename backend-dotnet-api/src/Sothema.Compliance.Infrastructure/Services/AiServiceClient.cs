@@ -83,6 +83,26 @@ public class AiServiceClient : IAiService
         return result ?? new AiSearchResponseDto();
     }
 
+    public async Task<AiAgenticSearchResponseDto> AgenticSearchAsync(
+        string query, int topK = 10, int maxIterations = 2,
+        CancellationToken cancellationToken = default)
+    {
+        // Hard deadline 60s — agentic searches routinely take 30-45s with
+        // multi-iteration retrieval + reranking + LLM calls.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(60));
+
+        var payload = new { query, top_k = topK, max_iterations = maxIterations };
+        var response = await _httpClient.PostAsJsonAsync(
+            "api/agentic-search", payload, cts.Token);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<AiAgenticSearchResponseDto>(
+            cancellationToken: cts.Token);
+
+        return result ?? new AiAgenticSearchResponseDto();
+    }
+
     public async Task IngestDocumentAsync(
         Guid documentId, byte[] content, string fileType, string title,
         CancellationToken cancellationToken = default)
