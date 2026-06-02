@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, text as sa_text, update
+from sqlalchemy import delete, select, text as sa_text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -119,13 +119,42 @@ class TextSegmentRepository:
         return list(result.scalars().all())
 
     async def delete_by_document_id(self, doc_id: uuid.UUID) -> list[str]:
-        """Delete all segments for a document. Returns list of VectorStoreIds for index cleanup."""
+        """Delete all segments for a document. Returns list of VectorStoreIds for index cleanup.
+
+        Audit join rows in AiRequestSegments reference these segments through a
+        composite-PK FK (TextSegmentId is part of that table's primary key). Any
+        segment that has appeared in a past search has such a row. Deleting the
+        segment via the ORM makes SQLAlchemy's default relationship sync try to
+        NULL that PK column, which raises
+        ``AssertionError: ... tried to blank-out primary key column``.
+
+        Fix: delete the dependent audit rows first, then bulk-delete the
+        segments. Both are issued as Core DELETE statements so no per-instance
+        ORM cascade synchronization runs."""
         segments = await self.get_by_document_id(doc_id)
+        if not segments:
+            return []
+
         vector_store_ids = [
             s.VectorStoreId for s in segments if s.VectorStoreId is not None
         ]
+        segment_ids = [s.Id for s in segments]
+
+        # 1. Remove audit join rows that point at these segments.
+        await self.session.execute(
+            delete(AiRequestSegment).where(
+                AiRequestSegment.TextSegmentId.in_(segment_ids)
+            )
+        )
+        # 2. Remove the segments themselves (bulk — bypasses ORM cascade).
+        await self.session.execute(
+            delete(TextSegment).where(TextSegment.Id.in_(segment_ids))
+        )
+        # Drop the now-deleted instances from the identity map so a later flush
+        # doesn't try to re-synchronize their relationships.
         for segment in segments:
-            await self.session.delete(segment)
+            self.session.expunge(segment)
+
         await self.session.flush()
         return vector_store_ids
 
