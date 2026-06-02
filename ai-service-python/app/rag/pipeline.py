@@ -153,7 +153,7 @@ class RAGPipeline:
             final_segments.append(seg)
         return final_retrieved, final_segments
 
-    async def retrieve_only(self, question: str, top_k: int = 10) -> RAGResponse:
+    async def retrieve_only(self, question: str, top_k: int = 6) -> RAGResponse:
         """Hybrid retrieval without LLM — fast, free, fully transparent.
         Same shape as `query()` but `answer` is empty."""
 
@@ -186,7 +186,7 @@ class RAGPipeline:
         )
         return RAGResponse(answer="", sources=sources, segments=ordered_segments)
 
-    async def query(self, question: str, top_k: int = 10) -> RAGResponse:
+    async def query(self, question: str, top_k: int = 6) -> RAGResponse:
         retrieved, ordered_segments = await self._retrieve_and_rerank(question, top_k)
 
         if not retrieved:

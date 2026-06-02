@@ -16,7 +16,7 @@ export async function queryCompliance(
 
   const res = await api.post('/api/search', {
     query: question,
-    topK: 10,
+    topK: 6, // Fast mode: tighter context (Deep Analysis keeps 10)
     includeAnswer,
   });
 

@@ -5,7 +5,9 @@ from pydantic import BaseModel, Field
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
-    top_k: int = Field(default=10, ge=1, le=50)
+    # Fast mode: 6 chunks — tighter context, less noise/latency than Deep
+    # Analysis (which keeps 8-10 in AgenticSearchRequest).
+    top_k: int = Field(default=6, ge=1, le=50)
     include_answer: bool = Field(
         default=True,
         description="If False, skip the LLM step and return ranked chunks only.",
