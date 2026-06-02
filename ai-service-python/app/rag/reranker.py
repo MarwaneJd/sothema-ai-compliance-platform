@@ -9,6 +9,7 @@ first run and cached locally.
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 
 import structlog
@@ -19,10 +20,18 @@ from app.rag.hybrid_retriever import RetrievedSegment
 logger = structlog.get_logger()
 
 
+def _sigmoid(x: float) -> float:
+    """Map a cross-encoder logit to a [0,1] relevance via sigmoid. Monotonic, so
+    it preserves the reranked order; this is the value surfaced to the API as the
+    relevance score (raw logits run roughly -11..+11 for this model)."""
+    return 1.0 / (1.0 + math.exp(-x))
+
+
 @dataclass
 class RerankedSegment:
     vector_store_id: str
-    rerank_score: float
+    rerank_score: float  # raw cross-encoder logit (kept for logging)
+    relevance: float  # sigmoid(rerank_score) in [0,1] — display relevance
     rrf_score: float
     vector_rank: int | None
     bm25_rank: int | None
@@ -71,6 +80,7 @@ class CrossEncoderReranker:
             RerankedSegment(
                 vector_store_id=cand.vector_store_id,
                 rerank_score=float(score),
+                relevance=_sigmoid(float(score)),
                 rrf_score=cand.rrf_score,
                 vector_rank=cand.vector_rank,
                 bm25_rank=cand.bm25_rank,

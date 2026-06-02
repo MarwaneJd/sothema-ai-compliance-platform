@@ -12,6 +12,16 @@ from app.services.llm import LLMService
 
 logger = structlog.get_logger()
 
+
+def _display_score(r: RetrievedSegment | None) -> float:
+    """Relevance shown to the user: the normalized cross-encoder score when a
+    reranker ran, else the RRF score. Raw RRF is a rank-fusion number bounded
+    near n/(k+1) (~5-7% here) and is misleading as a relevance percentage."""
+    if r is None:
+        return 0.0
+    return r.rerank_score if r.rerank_score is not None else r.rrf_score
+
+
 SYSTEM_PROMPT = """You are a pharmaceutical regulatory compliance assistant.
 
 STRICT RULES:
@@ -138,6 +148,7 @@ class RAGPipeline:
             base = rrf_by_id.get(rr.vector_store_id)
             if seg is None or base is None:
                 continue
+            base.rerank_score = rr.relevance
             final_retrieved.append(base)
             final_segments.append(seg)
         return final_retrieved, final_segments
@@ -164,7 +175,7 @@ class RAGPipeline:
                     document_title=doc_title,
                     chunk_index=segment.ChunkIndex,
                     content_preview=segment.Content[:500],
-                    relevance_score=rrf_result.rrf_score if rrf_result else 0.0,
+                    relevance_score=_display_score(rrf_result),
                 )
             )
 
@@ -205,7 +216,7 @@ class RAGPipeline:
                     document_title=doc_title,
                     chunk_index=segment.ChunkIndex,
                     content_preview=segment.Content[:200],
-                    relevance_score=rrf_result.rrf_score if rrf_result else 0.0,
+                    relevance_score=_display_score(rrf_result),
                 )
             )
 

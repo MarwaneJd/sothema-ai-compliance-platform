@@ -116,7 +116,9 @@ async def agentic_search(
                 document_title=(doc.Title if doc else "Unknown"),
                 segment_content=(seg.Content or "")[:200],
                 chunk_index=seg.ChunkIndex,
-                relevance_score=r.rrf_score,
+                relevance_score=(
+                    r.rerank_score if r.rerank_score is not None else r.rrf_score
+                ),
                 vector_store_id=seg.VectorStoreId or "",
             )
         )
@@ -162,7 +164,9 @@ async def agentic_search(
             AiRequestSegment(
                 AiRequestId=ai_request.Id,
                 TextSegmentId=seg.Id,
-                RelevanceScore=r.rrf_score,
+                RelevanceScore=(
+                    r.rerank_score if r.rerank_score is not None else r.rrf_score
+                ),
             )
         )
     if ai_segments:

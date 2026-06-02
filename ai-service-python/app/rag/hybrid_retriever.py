@@ -15,6 +15,9 @@ class RetrievedSegment:
     rrf_score: float
     vector_rank: int | None
     bm25_rank: int | None
+    # Normalized cross-encoder relevance in [0,1], set when a reranker ran.
+    # None ⇒ no rerank, so the only score available is the (tiny) RRF value.
+    rerank_score: float | None = None
 
 
 def reciprocal_rank_fusion(

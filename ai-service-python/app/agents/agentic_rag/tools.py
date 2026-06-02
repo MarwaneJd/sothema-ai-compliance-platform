@@ -88,6 +88,7 @@ async def hybrid_search(
         base = rrf_by_id.get(rr.vector_store_id)
         if seg is None or base is None:
             continue
+        base.rerank_score = rr.relevance
         final_retrieved.append(base)
         final_segments.append(seg)
 
