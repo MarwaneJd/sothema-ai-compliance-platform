@@ -121,7 +121,10 @@ public class SharePointService : ISharePointService
             ContentType = driveItem.File?.MimeType ?? string.Empty,
             FileType = Path.GetExtension(driveItem.Name ?? string.Empty).TrimStart('.'),
             SharePointUrl = driveItem.WebUrl ?? string.Empty,
-            LastModified = driveItem.LastModifiedDateTime?.DateTime
+            LastModified = driveItem.LastModifiedDateTime?.DateTime,
+            ContentHash = driveItem.File?.Hashes?.QuickXorHash
+                ?? driveItem.CTag
+                ?? driveItem.ETag
         };
     }
 }

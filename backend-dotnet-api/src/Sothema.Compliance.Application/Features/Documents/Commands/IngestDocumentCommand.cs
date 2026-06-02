@@ -73,6 +73,7 @@ public class IngestDocumentCommandHandler
             ContentType = metadata.ContentType,
             FileType = metadata.FileType,
             SharePointUrl = metadata.SharePointUrl,
+            ContentHash = metadata.ContentHash,
             UploadedAt = DateTime.UtcNow
         };
 

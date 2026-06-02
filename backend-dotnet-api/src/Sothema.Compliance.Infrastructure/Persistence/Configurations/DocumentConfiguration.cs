@@ -38,6 +38,9 @@ public class DocumentConfiguration : IEntityTypeConfiguration<Document>
             .IsRequired()
             .HasMaxLength(2048);
 
+        builder.Property(d => d.ContentHash)
+            .HasMaxLength(256);
+
         builder.HasIndex(d => d.SharePointItemId);
 
         builder.HasMany(d => d.TextSegments)

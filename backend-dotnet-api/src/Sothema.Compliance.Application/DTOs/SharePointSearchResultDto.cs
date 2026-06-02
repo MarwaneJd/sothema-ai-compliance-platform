@@ -10,4 +10,5 @@ public record SharePointSearchResultDto
     public string FileType { get; init; } = string.Empty;
     public string SharePointUrl { get; init; } = string.Empty;
     public DateTime? LastModified { get; init; }
+    public string? ContentHash { get; init; }
 }

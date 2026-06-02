@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using MediatR;
 using Sothema.Compliance.Application.Common.Interfaces;
+using Sothema.Compliance.Application.Common.Models;
 using Sothema.Compliance.Application.Features.Documents.Commands;
 using Sothema.Compliance.Domain.Entities;
 using Sothema.Compliance.Domain.Interfaces;
@@ -23,24 +25,21 @@ public enum ChangeClassification
 public class SharePointSyncProcessor : ISyncProcessor
 {
     private readonly GraphServiceClient _graphClient;
-    private readonly IMediator _mediator;
     private readonly ComplianceDbContext _dbContext;
-    private readonly IDocumentRepository _documentRepository;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SharePointSyncProcessor> _logger;
     private readonly SharePointSyncOptions _options;
 
     public SharePointSyncProcessor(
         AppGraphClient appGraphClient,
-        IMediator mediator,
         ComplianceDbContext dbContext,
-        IDocumentRepository documentRepository,
+        IServiceScopeFactory scopeFactory,
         ILogger<SharePointSyncProcessor> logger,
         IOptions<SharePointSyncOptions> options)
     {
         _graphClient = appGraphClient.Client;
-        _mediator = mediator;
         _dbContext = dbContext;
-        _documentRepository = documentRepository;
+        _scopeFactory = scopeFactory;
         _logger = logger;
         _options = options.Value;
     }
@@ -65,9 +64,11 @@ public class SharePointSyncProcessor : ISyncProcessor
 
         await DispatchChangesAsync(items, cancellationToken);
 
-        state.DeltaToken = nextDeltaLink ?? state.DeltaToken;
-        state.LastSyncAt = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        // Commit the new delta token in its OWN transaction, independent of item
+        // processing. This MUST advance even if some items above failed —
+        // otherwise the next cycle re-fetches the same delta and reprocesses the
+        // same items forever (the destructive loop this fix removes).
+        await PersistDeltaTokenAsync(state.SiteId, state.DriveId, nextDeltaLink, cancellationToken);
 
         _logger.LogInformation(
             "SharePointSyncProcessor: delta cycle processed {Count} items.", items.Count);
@@ -99,9 +100,7 @@ public class SharePointSyncProcessor : ISyncProcessor
             }
         }
 
-        state.DeltaToken = nextDeltaLink ?? state.DeltaToken;
-        state.LastSyncAt = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await PersistDeltaTokenAsync(state.SiteId, state.DriveId, nextDeltaLink, cancellationToken);
 
         _logger.LogInformation(
             "SharePointSyncProcessor: initial bulk sync dispatched {Processed} items.",
@@ -112,6 +111,7 @@ public class SharePointSyncProcessor : ISyncProcessor
         CancellationToken cancellationToken)
     {
         var state = await _dbContext.SharePointSyncStates
+            .AsNoTracking()
             .FirstOrDefaultAsync(
                 s => s.SiteId == _options.SiteId && s.DriveId == _options.DriveId,
                 cancellationToken);
@@ -136,7 +136,7 @@ public class SharePointSyncProcessor : ISyncProcessor
         {
             // Race: another service inserted this row first. Detach and refetch.
             _dbContext.Entry(state).State = EntityState.Detached;
-            state = await _dbContext.SharePointSyncStates.FirstOrDefaultAsync(
+            state = await _dbContext.SharePointSyncStates.AsNoTracking().FirstOrDefaultAsync(
                 s => s.SiteId == _options.SiteId && s.DriveId == _options.DriveId,
                 cancellationToken)
                 ?? throw new InvalidOperationException(
@@ -144,6 +144,41 @@ public class SharePointSyncProcessor : ISyncProcessor
         }
 
         return state;
+    }
+
+    /// <summary>
+    /// Persist the delta token on a fresh DbContext so the write carries only the
+    /// token update — never leftover tracked changes from item dispatch. Without
+    /// this isolation, a failed item could poison the shared change tracker and
+    /// the token save would throw, leaving the token frozen and the same delta
+    /// replaying indefinitely.
+    /// </summary>
+    private async Task PersistDeltaTokenAsync(
+        string siteId, string driveId, string? deltaToken, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(deltaToken))
+        {
+            _logger.LogWarning(
+                "SharePointSyncProcessor: no next delta link returned — token not advanced this cycle.");
+            return;
+        }
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ComplianceDbContext>();
+
+        var row = await db.SharePointSyncStates.FirstOrDefaultAsync(
+            s => s.SiteId == siteId && s.DriveId == driveId, cancellationToken);
+        if (row is null)
+        {
+            _logger.LogWarning(
+                "SharePointSyncProcessor: sync-state row vanished before token persist for drive {DriveId}.",
+                driveId);
+            return;
+        }
+
+        row.DeltaToken = deltaToken;
+        row.LastSyncAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<(List<DriveItem> Items, string? NextDeltaLink)> FetchDeltaAsync(
@@ -192,52 +227,119 @@ public class SharePointSyncProcessor : ISyncProcessor
         {
             if (string.IsNullOrEmpty(item.Id)) continue;
 
-            var existing = await _documentRepository.GetBySharePointItemIdAsync(
-                item.Id, cancellationToken);
-
-            var classification = ClassifyChange(item, existing);
-
             try
             {
-                switch (classification)
-                {
-                    case ChangeClassification.Added:
-                        await _mediator.Send(new IngestDocumentCommand
-                        {
-                            SiteId = _options.SiteId,
-                            DriveId = _options.DriveId,
-                            SharePointItemId = item.Id
-                        }, cancellationToken);
-                        break;
-
-                    case ChangeClassification.Modified when existing is not null:
-                        await _mediator.Send(
-                            new RemoveDocumentCommand(existing.Id, DeleteDocumentRow: true),
-                            cancellationToken);
-                        await _mediator.Send(new IngestDocumentCommand
-                        {
-                            SiteId = _options.SiteId,
-                            DriveId = _options.DriveId,
-                            SharePointItemId = item.Id
-                        }, cancellationToken);
-                        break;
-
-                    case ChangeClassification.Deleted when existing is not null:
-                        await _mediator.Send(
-                            new RemoveDocumentCommand(existing.Id, DeleteDocumentRow: true),
-                            cancellationToken);
-                        break;
-
-                    case ChangeClassification.Ignored:
-                    default:
-                        break;
-                }
+                await DispatchItemInScopeAsync(item, cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "SharePointSyncProcessor: failed to dispatch {Classification} for item {ItemId} — continuing with next item.",
-                    classification, item.Id);
+                    "SharePointSyncProcessor: failed to dispatch item {ItemId} — continuing with next item.",
+                    item.Id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Process one item in its own DI scope (fresh DbContext + mediator). Isolating
+    /// each item means a failure on one cannot leave stale deletes tracked in a
+    /// shared context — the source of the original concurrency crashes — and the
+    /// Remove/Ingest for a Modified item commit independently.
+    /// </summary>
+    private async Task DispatchItemInScopeAsync(DriveItem item, CancellationToken cancellationToken)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var docRepo = scope.ServiceProvider.GetRequiredService<IDocumentRepository>();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        var existing = await docRepo.GetBySharePointItemIdAsync(item.Id!, cancellationToken);
+        var classification = ClassifyChange(item, existing);
+
+        switch (classification)
+        {
+            case ChangeClassification.Added:
+                await IngestAsync(mediator, item.Id!, cancellationToken, afterDelete: false);
+                break;
+
+            case ChangeClassification.Modified when existing is not null:
+                await RemoveAsync(mediator, existing.Id, cancellationToken);
+                // The remove is destructive; the re-ingest MUST complete or the
+                // document is left unindexed. Higher retry budget + loud failure.
+                await IngestAsync(mediator, item.Id!, cancellationToken, afterDelete: true);
+                break;
+
+            case ChangeClassification.Deleted when existing is not null:
+                await RemoveAsync(mediator, existing.Id, cancellationToken);
+                break;
+
+            default:
+                _logger.LogDebug(
+                    "SharePointSyncProcessor: item {ItemId} classified {Classification} — no action.",
+                    item.Id, classification);
+                break;
+        }
+    }
+
+    private Task RemoveAsync(IMediator mediator, Guid documentId, CancellationToken cancellationToken)
+        => RetryOnConcurrencyAsync(
+            () => mediator.Send(new RemoveDocumentCommand(documentId, DeleteDocumentRow: true), cancellationToken),
+            $"remove {documentId}", cancellationToken);
+
+    private async Task IngestAsync(
+        IMediator mediator, string itemId, CancellationToken cancellationToken, bool afterDelete)
+    {
+        // A re-ingest following a destructive delete gets a larger retry budget —
+        // we have already removed the old document, so failing to re-create it is
+        // data loss, not a transient miss.
+        var maxAttempts = afterDelete ? 5 : 3;
+
+        try
+        {
+            var result = await RetryOnConcurrencyAsync(
+                () => mediator.Send(new IngestDocumentCommand
+                {
+                    SiteId = _options.SiteId,
+                    DriveId = _options.DriveId,
+                    SharePointItemId = itemId
+                }, cancellationToken),
+                $"ingest {itemId}", cancellationToken, maxAttempts);
+
+            if (!result.IsSuccess)
+            {
+                if (afterDelete)
+                    _logger.LogCritical(
+                        "SharePointSyncProcessor: re-ingest of {ItemId} returned failure after a delete ({Error}) — document is now UNINDEXED and needs manual re-sync.",
+                        itemId, result.Error);
+                else
+                    _logger.LogWarning(
+                        "SharePointSyncProcessor: ingest of {ItemId} returned failure: {Error}",
+                        itemId, result.Error);
+            }
+        }
+        catch (Exception ex) when (afterDelete)
+        {
+            _logger.LogCritical(ex,
+                "SharePointSyncProcessor: re-ingest of {ItemId} threw after a delete — document is now UNINDEXED and needs manual re-sync.",
+                itemId);
+            throw;
+        }
+    }
+
+    private async Task<T> RetryOnConcurrencyAsync<T>(
+        Func<Task<T>> operation, string label, CancellationToken cancellationToken, int maxAttempts = 3)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await operation();
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < maxAttempts)
+            {
+                _logger.LogWarning(ex,
+                    "SharePointSyncProcessor: {Label} hit a concurrency conflict (attempt {Attempt}/{Max}) — retrying.",
+                    label, attempt, maxAttempts);
+                await Task.Delay(200 * attempt, cancellationToken);
             }
         }
     }
@@ -254,6 +356,27 @@ public class SharePointSyncProcessor : ISyncProcessor
             return ChangeClassification.Ignored;
         }
 
-        return existing is null ? ChangeClassification.Added : ChangeClassification.Modified;
+        if (existing is null)
+        {
+            return ChangeClassification.Added;
+        }
+
+        // Existing document: only a genuine content change warrants the destructive
+        // remove + re-ingest. Delta legitimately re-surfaces unchanged items (a
+        // replayed token, a metadata-only touch), so skip them when the content
+        // hash matches what we already indexed — this prevents the spurious
+        // Modified churn that was wiping the corpus.
+        var incomingHash = ContentHashOf(item);
+        if (!string.IsNullOrEmpty(incomingHash) &&
+            string.Equals(incomingHash, existing.ContentHash, StringComparison.Ordinal))
+        {
+            return ChangeClassification.Ignored;
+        }
+
+        return ChangeClassification.Modified;
     }
+
+    /// <summary>Content identity for change detection: quickXorHash, then cTag, then eTag.</summary>
+    internal static string? ContentHashOf(DriveItem item)
+        => item.File?.Hashes?.QuickXorHash ?? item.CTag ?? item.ETag;
 }

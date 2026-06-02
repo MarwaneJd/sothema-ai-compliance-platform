@@ -12,6 +12,13 @@ public class Document
     public string SharePointUrl { get; set; } = string.Empty;
     public DateTime UploadedAt { get; set; }
 
+    /// <summary>
+    /// Content identity from SharePoint (quickXorHash / cTag / eTag). Used by the
+    /// delta sync to skip items whose content hasn't actually changed, instead of
+    /// re-classifying them as Modified and re-indexing them.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     public ICollection<TextSegment> TextSegments { get; set; } = new List<TextSegment>();
     public ICollection<ComplianceAnalysis> ComplianceAnalyses { get; set; } = new List<ComplianceAnalysis>();
 }
