@@ -1,9 +1,9 @@
 # Project Status — Sothema AI Compliance Platform
 
-> **As of:** 2026-05-19
+> **As of:** 2026-06-04
 > **Current branch:** `main`
-> **Last commit:** `c442300` — Add agentic RAG: cross-encoder reranker, multi-query retrieval, stricter prompt
-> **Untracked (uncommitted):** `ai-service-python/app/agents/agentic_rag/` (6 files), `app/api/routes/agentic_search.py`, `app/api/schemas/agentic_search.py`, `docs/report/diagrams/*.puml` (7 files)
+> **Last commit:** `117852d` — Reduce Fast-mode retrieval to top_k=6 (Deep Analysis keeps 10)
+> **All previous untracked files now committed.**
 
 ---
 
@@ -17,21 +17,36 @@ EF Core migrations replace the dev `EnsureCreated()` bootstrap, and
 the SharePoint sync subsystem (webhooks + delta polling) is activated
 and working.
 
-The most recent shipped work (commit `c442300`, 2026-05-11) added the
-full agentic RAG Deep Analysis mode: a 6-node LangGraph state machine
-(plan/retrieve/reflect/refine_query/generate/verify) with plan-aware
-complexity routing, a synthesis prompt for comparative queries,
-cross-encoder reranker, multi-query retrieval, rate-limit-resilient
-verify (tenacity), and a `-1.0` sentinel + "Not verified" frontend UX
-for service-error paths. End-to-end latency on paid-tier Groq
-Llama-3.3-70B is 6–11s. The `agentic_rag/` module and its route files
-are committed in-tree but not yet tracked by git (untracked files).
+The most recent batch of work (commits `117852d`–`14c3004`, 2026-06-02)
+covers five focused improvements:
 
-Prior recent work (commit `6db6517`, 2026-05-02) targeted French RAG
-retrieval quality — a multilingual-aware BM25 tokenizer (French
-Snowball stemming, Arabic tashkeel stripping), a hierarchy-aware
-chunker with section breadcrumbs, and a goldset-based eval harness.
-The eval harness sits dormant until labeled queries are curated.
+1. **Fast-mode top_k=6** (`117852d`) — Fast mode retrieves 6 chunks
+   (down from 10) for tighter, less noisy context and lower latency;
+   Deep Analysis keeps 10 for multi-hop coverage.
+2. **Delta-sync correctness fix** (`0c6140c`) — Fixed a destructive loop
+   where each cycle re-classified the same items as Modified, deleting
+   segments without re-indexing. Three fixes: (a) `ContentHash` field on
+   `Document` (quickXorHash/cTag/eTag) lets `ClassifyChange` skip
+   unchanged items; (b) delta token persists in its own transaction
+   (`PersistDeltaTokenAsync`) so it advances regardless of item failures;
+   (c) each item dispatched in its own DI scope to prevent cross-item
+   change-tracker pollution.
+3. **Cross-encoder relevance surfaced** (`aa1a5c6`) — `relevance_score`
+   in search results now uses the cross-encoder sigmoid score instead
+   of raw RRF (which was bounded ~5–7% and looked uniformly low).
+   Falls back to RRF when reranker is absent.
+4. **Document delete fix** (`2d7f132`) — Deleting a document whose
+   segments appeared in audit rows raised HTTP 500. `delete_by_document_id`
+   now removes dependent `AiRequestSegments` first, then bulk-deletes
+   segments via Core SQL, bypassing ORM cascade.
+5. **DOCX table + header/footer extraction** (`14c3004`) — `_extract_docx`
+   now walks paragraphs and tables interleaved (order preserved), renders
+   table cells as pipe-joined rows, and pulls deduplicated header/footer
+   text so tabular regulatory content is fully indexed.
+
+Prior major work (commit `c442300`, 2026-05-11) added the full agentic
+RAG Deep Analysis mode. Commit `6db6517` (2026-05-02) improved French
+RAG retrieval quality with a multilingual BM25 tokenizer and eval harness.
 
 The remaining gap before deployable production is **CI/CD pipelines
 and cloud infrastructure** (`infrastructure/` directory still empty,
@@ -72,7 +87,7 @@ no GitHub Actions). Everything else is in place.
 | Infrastructure — `SharePointService` (OBO/delegated) | ✅ Done | Real Microsoft Graph SDK implementation; user-context flows (search, manual ingest) |
 | Infrastructure — `AppGraphClient` (app-only) | ✅ **Done** | `Azure.Identity.ClientSecretCredential`-backed singleton; used by background sync services that have no user context |
 | Infrastructure — `StubSharePointService` | ✅ Done | Dev-mode stub; persists uploaded file bytes in `data/dev-files/` for re-analysis |
-| Infrastructure — SharePoint Sync | ✅ **Activated and working** | `SharePointSyncProcessor`, `DeltaSyncService`, `SubscriptionRenewalService`, `WebhookController`. Hybrid webhook + delta-polling. Gated by `SharePointSync:Enabled`. |
+| Infrastructure — SharePoint Sync | ✅ **Activated and working** | `SharePointSyncProcessor`, `DeltaSyncService`, `SubscriptionRenewalService`, `WebhookController`. Hybrid webhook + delta-polling. Gated by `SharePointSync:Enabled`. `Document.ContentHash` (quickXorHash/cTag/eTag) deduplicates unchanged items; delta token commits in own transaction. |
 | Authentication — JWT bearer + Entra ID | ✅ **Done** | `Microsoft.Identity.Web` validates real Entra-issued JWTs against `https://login.microsoftonline.com/{TenantId}/v2.0`; audience = `api://{ClientId}`. DevAuth scheme remains for local development. |
 | Authentication — Role resolution | ✅ Done | `DatabaseRoleClaimsTransformation` resolves roles from the local `Users` table on first login (auto-creates user with `Authorization:DefaultNewUserRole`); short-circuits if the JWT already carries `ClaimTypes.Role` |
 | API — Controllers | ✅ Done | `DocumentsController`, `ComplianceController`, `SearchController`, `AuditController`, `UsersController`, `HealthController`, `DevController`, `WebhookController` (anonymous, validates `clientState`) |
@@ -100,7 +115,10 @@ no GitHub Actions). Everything else is in place.
 | RAG pipeline | ✅ Done | Embed query → hybrid retrieve → fetch segments → build prompt → LLM → answer |
 | LLM providers | ✅ Done | Azure OpenAI, Groq (llama-3.3-70b), Ollama (local) — switched via `AI_SERVICE_LLM_PROVIDER` |
 | Multi-agent graph (LangGraph) | ✅ Done | Supervisor + 6 specialized agents: DocumentRetrieval, ContentAnalysis, RegulatoryCompliance, ComplianceScoring, Explanation, Audit |
-| Agentic RAG (Deep Analysis) | ✅ **Hardened (2026-05-14)** | `/api/agentic-search` with plan-aware complexity routing (single_pass vs multi_pass), synthesis-mode generate prompt for comparative queries, tenacity-wrapped verify with `-1.0` sentinel on rate limits, frontend "Not verified" UX. End-to-end measured 6–11s on paid Groq. See [agentic-rag-implementation-plan.md §"Phase 3 hardening"](agentic-rag-implementation-plan.md). |
+| Agentic RAG (Deep Analysis) | ✅ **Hardened (2026-05-14)** | `/api/agentic-search` with plan-aware complexity routing (single_pass vs multi_pass), synthesis-mode generate prompt for comparative queries, tenacity-wrapped verify with `-1.0` sentinel on rate limits, frontend "Not verified" UX. End-to-end measured 6–11s on paid Groq. |
+| Fast-mode top_k | ✅ **Tuned (2026-06-02)** | Fast mode sends `top_k=6` (down from 10) for tighter context; Deep Analysis keeps `top_k=10`. |
+| Relevance score | ✅ **Improved (2026-06-02)** | `relevance_score` in search API now uses sigmoid(cross-encoder logit) when reranker ran, RRF fallback otherwise. |
+| DOCX extraction | ✅ **Improved (2026-06-02)** | Tables (pipe-joined rows) + header/footer text extracted by `_extract_docx`. |
 | API endpoints | ✅ Done | `POST /api/documents/ingest`, `DELETE /api/documents/{id}`, `GET /api/documents/{id}/status`, `POST /api/search` (with `vector_store_id` populated in results), `POST /api/agentic-search` (Deep Analysis), `POST /api/analyze`, `GET /api/analyze/{jobId}/status`, `GET /api/health` |
 | Agentic RAG — Deep Analysis | ✅ **Shipped (c442300 + untracked)** | `app/agents/agentic_rag/`: 6-node LangGraph (plan/retrieve/reflect/refine_query/generate/verify). `AgentBudget` (max 2 iter, 8 LLM calls, 25s). Plan-aware routing: single_pass vs multi_pass. GENERATE_SYSTEM_SYNTHESIS for comparative. tenacity verify (3×). Groundedness sentinel -1.0. `POST /api/agentic-search`. |
 | Eval harness | ✅ **New (2026-05-02)** | `app/evals/`: strict JSONL goldset loader, `ranx`-backed retrieval metrics (recall@k, MRR, nDCG), thin LLM-as-judge for faithfulness and answer-relevance, interactive bootstrap CLI for labeling. Goldset file is empty until curated. |
