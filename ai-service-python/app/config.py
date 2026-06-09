@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # if you move to GPU and want maximum quality.
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     reranker_fetch_multiplier: int = 4  # fetch top_k * N candidates, rerank to top_k
-    reranker_max_length: int = 256  # token cap per (query, candidate) pair — keeps CPU latency bounded
+    reranker_max_length: int = 512  # token cap per (query, candidate) pair — 512 covers full chunks so content deeper in a chunk (e.g. procedural steps) isn't truncated before the cross-encoder sees it
 
     # Multi-query rewriting (Phase 2)
     enable_multi_query: bool = True
