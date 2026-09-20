@@ -97,3 +97,6 @@ temp/
 # Docs report (LaTeX build + generated PDFs/diagrams)
 # =========================
 docs/report/
+
+# Build deliverables (source zip + docker image tarball)
+deliverables/
